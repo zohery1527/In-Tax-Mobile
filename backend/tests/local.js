@@ -1,0 +1,5 @@
+DB_USER=in_tax_user
+DB_PASS=MZLaLCCi6POGfMYrippQfvVMhjZk2WrD
+DB_NAME=in_tax_db
+DB_HOST=dpg-d446qds9c44c73c2r52g-a
+DB_PORT=5432
