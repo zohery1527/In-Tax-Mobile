@@ -2,6 +2,7 @@ require('dotenv').config();
 
 module.exports = {
   development: {
+    url: process.env.DATABASE_URL,
     username: process.env.DB_USER || "in_tax_db_ijil_user",
     password: process.env.DB_PASS || "29Jx5YgqiEXRhK3J30rL8AWNIk0Mz7cc",
     database: process.env.DB_NAME || "in_tax_db_ijil",
@@ -17,6 +18,7 @@ module.exports = {
   },
   test: {},
   production: {
+    url: process.env.DATABASE_URL,
     username: process.env.DB_USER || "in_tax_db_ijil_user",
     password: process.env.DB_PASS || "29Jx5YgqiEXRhK3J30rL8AWNIk0Mz7cc",
     database: process.env.DB_NAME || "in_tax_db_ijil",
