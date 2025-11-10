@@ -74,40 +74,161 @@ const authService = {
     };
   },
 
-  async login(phoneNumber) {
-    const user = await User.findOne({
-      where: { phoneNumber, isActive: true },
-      include: [{ model: Zone, as: 'zone' }]
-    });
+  // async login(phoneNumber) {
+  //   const user = await User.findOne({
+  //     where: { phoneNumber, isActive: true },
+  //     include: [{ model: Zone, as: 'zone' }]
+  //   });
 
-    if (!user) {
-      throw new Error('Aucun compte trouvé avec ce numéro');
+  //   if (!user) {
+
+  //     const inactiveUser= await User.findOne({
+  //       where:{phoneNumber,isActive:false},
+  //     });
+  //     if (inactiveUser) {
+  //       throw new Error("Votre compte est inactif.Veuillez contacter le support.");
+  //     }
+  //     throw new Error('Aucun compte trouvé avec ce numéro');
+  //   }
+
+  //   const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+  //   await PendingOTP.create({
+  //     userId: user.id,
+  //     phoneNumber,
+  //     code: otpCode,
+  //     purpose: 'LOGIN',
+  //     expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+  //     used: false
+  //   });
+
+  //   try {
+  //     await smsService.sendOTP(phoneNumber, otpCode, 'connexion');
+  //   } catch (error) {
+  //     console.error("Erreur envoi SMS OTP:", error);
+  //   }
+
+  //   const response={
+  //     userId:user.id,
+  //     message:'Code OTP de connexionenvoyé'
+  //   };
+
+
+  //   if(process.env.DEMO_MODE_ENABLED==='true'){
+  //     response.devOtpCode=otpCode;
+  //     console.log(`[RENDER DEMO MODE] OTP inclus dans la réponse API:${otpCode}`);
+  //   }
+
+  //   return response;
+  // },
+
+//   async login(phoneNumber) {
+//   const user = await User.findOne({
+//     where: { phoneNumber, isActive: true },
+//     include: [{ model: Zone, as: 'zone' }]
+//   });
+  
+//   if (!user) {
+//     const inactiveUser = await User.findOne({
+//       where: { phoneNumber, isActive: false },
+//     });
+//     if (inactiveUser) {
+//       throw new Error("Votre compte est inactif. Veuillez contacter le support.");
+//     }
+//     throw new Error('Aucun compte trouvé avec ce numéro');
+//   }
+
+//   const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+//   await PendingOTP.create({
+//     userId: user.id,
+//     phoneNumber,
+//     code: otpCode,
+//     purpose: 'LOGIN',
+//     expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+//     used: false
+//   });
+
+//   try {
+//     await smsService.sendOTP(phoneNumber, otpCode, 'connexion');
+//     console.log(`✅ SMS OTP envoyé à ${phoneNumber}`);
+//   } catch (error) {
+//     console.error("❌ Erreur envoi SMS OTP:", error);
+//   }
+
+//   // 🔥 TOUJOURS retourner l'OTP dans la réponse
+//   const response = {
+//     userId: user.id,
+//     message: 'Code OTP de connexion envoyé',
+//     otpCode: otpCode, // L'OTP est toujours retourné
+//     debugInfo: {
+//       phoneNumber: phoneNumber,
+//       timestamp: new Date().toISOString(),
+//       expiresIn: '10 minutes'
+//     }
+//   };
+
+//   console.log(`🎯 [IN-TAX OTP] ${phoneNumber} → Code: ${otpCode}`);
+//   console.log(`⏰ Valide jusqu'à: ${new Date(Date.now() + 10 * 60 * 1000).toLocaleTimeString()}`);
+  
+//   return response;
+// },
+
+
+async login(phoneNumber) {
+  // Chercher d'abord tout utilisateur avec ce numéro (actif ou non)
+  const user = await User.findOne({
+    where: { phoneNumber },
+    include: [{ model: Zone, as: 'zone' }]
+  });
+
+  if (!user) {
+    // Aucun utilisateur avec ce numéro
+    throw new Error('Aucun compte trouvé avec ce numéro');
+  }
+
+  // Vérifier si le compte est actif
+  if (!user.isActive) {
+    throw new Error("Votre compte est inactif. Veuillez contacter le support.");
+  }
+
+  // Générer l'OTP
+  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+  await PendingOTP.create({
+    userId: user.id,
+    phoneNumber,
+    code: otpCode,
+    purpose: 'LOGIN',
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    used: false
+  });
+
+  try {
+    await smsService.sendOTP(phoneNumber, otpCode, 'connexion');
+    console.log(`✅ SMS OTP envoyé à ${phoneNumber}`);
+  } catch (error) {
+    console.error("❌ Erreur envoi SMS OTP:", error);
+  }
+
+  // Retourner la réponse avec l'OTP
+  const response = {
+    userId: user.id,
+    message: 'Code OTP de connexion envoyé',
+    otpCode: otpCode, // Toujours retourner l'OTP
+    debugInfo: {
+      phoneNumber: phoneNumber,
+      role: user.role,
+      timestamp: new Date().toISOString(),
+      expiresIn: '10 minutes'
     }
+  };
 
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-
-    await PendingOTP.create({
-      userId: user.id,
-      phoneNumber,
-      code: otpCode,
-      purpose: 'LOGIN',
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-      used: false
-    });
-
-    try {
-      await smsService.sendOTP(phoneNumber, otpCode, 'connexion');
-    } catch (error) {
-      console.error("Erreur envoi SMS OTP:", error);
-      throw new Error('Erreur envoi SMS. Veuillez réessayer.');
-    }
-
-    return {
-      userId: user.id,
-      otpCode:otpCode,
-      message: "Code de connexion envoyé"
-    };
-  },
+  console.log(`🎯 [IN-TAX OTP] ${phoneNumber} → Code: ${otpCode}`);
+  console.log(`⏰ Valide jusqu'à: ${new Date(Date.now() + 10 * 60 * 1000).toLocaleTimeString()}`);
+  
+  return response;
+}
 
   async verifyOTP(userId, otpCode) {
     const pendingOTP = await PendingOTP.findOne({

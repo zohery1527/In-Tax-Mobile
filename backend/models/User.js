@@ -47,7 +47,7 @@ module.exports=(sequelize,DataTypes)=>{
              }
         },
         role:{
-            type:DataTypes.ENUM('VENDEUR','ADMIN'),
+            type:DataTypes.ENUM('VENDEUR','ADMIN','AGENT'),
             defaultValue:'VENDEUR'
         },
         zoneId:{
@@ -76,7 +76,7 @@ module.exports=(sequelize,DataTypes)=>{
             allowNull:true
         },
         activityType:{
-            type:DataTypes.ENUM('ALIMENTATION','ARTISANAT','COMMERCE','SERVICES','AUTRE'),
+            type:DataTypes.ENUM('ALIMENTATION','ARTISANAT','COMMERCE','SERVICE','AUTRE'),
             allowNull:false
         },
         isActive:{

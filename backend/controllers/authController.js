@@ -40,35 +40,70 @@ const authController = {
     }
   },
 
-  async login(req, res) {
-    try {
-      const { phoneNumber } = req.body;
+  // async login(req, res) {
+  //   try {
+  //     const { phoneNumber } = req.body;
 
-      if (!phoneNumber) {
-        return res.status(400).json({
-          success: false,
-          message: 'Le numéro de téléphone est requis'
-        });
-      }
+  //     if (!phoneNumber) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: 'Le numéro de téléphone est requis'
+  //       });
+  //     }
 
-      const result = await authService.login(phoneNumber);
+  //     const result = await authService.login(phoneNumber);
 
-      res.json({
-        success: true,
-        message: result.message,
-        data: {
-          userId: result.userId,
-          debug: process.env.NODE_ENV === 'development' ? { otpCode: result.otpCode } : undefined
-        }
-      });
-    } catch (error) {
-      console.error('Erreur Connexion:', error);
-      res.status(400).json({
+  //     res.json({
+  //       success: true,
+  //       message: result.message,
+  //       data: {
+  //         userId: result.userId,
+  //         debug: process.env.NODE_ENV === 'development' ? { otpCode: result.otpCode } : undefined
+  //       }
+  //     });
+  //   } catch (error) {
+  //     console.error('Erreur Connexion:', error);
+  //     res.status(400).json({
+  //       success: false,
+  //       message: error.message
+  //     });
+  //   }
+  // },
+
+async login(req, res) {
+  try {
+    const { phoneNumber } = req.body;
+
+    if (!phoneNumber) {
+      return res.status(400).json({
         success: false,
-        message: error.message
+        message: 'Le numéro de téléphone est requis'
       });
     }
-  },
+
+    const result = await authService.login(phoneNumber);
+
+    res.json({
+      success: true,
+      message: result.message,
+      data: {
+        userId: result.userId,
+        // 🔥 Retourner l'OTP même en production pour faciliter les tests
+        otpCode: result.otpCode,
+        debug: result.debugInfo
+      }
+    });
+  } catch (error) {
+    console.error('Erreur Connexion:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+},
+
+
+
 
   async verifyOTP(req, res) {
     try {
