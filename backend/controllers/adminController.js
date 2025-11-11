@@ -1,5 +1,6 @@
 const db = require('../models');
 const { User, Declaration, Payment, Zone, NIFHistory } = db;
+const ExportUtils = require('../utils/exportUtils');
 
 const adminController = {
   async getDashboard(req, res) {
@@ -261,11 +262,186 @@ const adminController = {
       console.error('Erreur liste utilisateurs:', error);
       res.status(500).json({
         success: false,
-
         message: "Erreur lors de la récupération des utilisateurs"
       });
     }
+  },
+
+  async exportData(req, res) {
+  try {
+    const { type } = req.params;
+    const { format = 'csv' } = req.query;
+
+    let data, filename, headers, fields;
+
+    switch (type) {
+      case 'users':
+        data = await User.findAll({
+          include: [{ 
+            model: Zone, 
+            as: 'zone',
+            attributes: ['name', 'region']
+          }],
+          attributes: [
+            'firstName', 'lastName', 'phoneNumber', 
+            'nifNumber', 'nifStatus', 'activityType', 
+            'createdAt', 'isActive'
+          ],
+          raw: true
+        });
+        
+        // Mapping pour l'export
+        data = data.map(user => ({
+          'Prénom': user.firstName,
+          'Nom': user.lastName,
+          'Téléphone': user.phoneNumber,
+          'NIF': user.nifNumber,
+          'Statut NIF': user.nifStatus,
+          'Activité': user.activityType,
+          'Région': user['zone.name'],
+          'Date inscription': new Date(user.createdAt).toLocaleDateString('fr-FR'),
+          'Statut': user.isActive ? 'Actif' : 'Inactif'
+        }));
+
+        filename = `utilisateurs_in-tax_${new Date().toISOString().split('T')[0]}`;
+        headers = ['Prénom', 'Nom', 'Téléphone', 'NIF', 'Statut NIF', 'Activité', 'Région', 'Date inscription', 'Statut'];
+        fields = headers;
+        break;
+
+      case 'declarations':
+        data = await Declaration.findAll({
+          include: [{
+            model: User,
+            as: 'user',
+            attributes: ['firstName', 'lastName', 'phoneNumber'],
+            include: [{ 
+              model: Zone, 
+              as: 'zone', 
+              attributes: ['name'] 
+            }]
+          }],
+          attributes: ['period', 'amount', 'taxAmount', 'status', 'activityType', 'createdAt'],
+          raw: true
+        });
+
+        data = data.map(declaration => ({
+          'Période': declaration.period,
+          'Montant': declaration.amount,
+          'Taxe': declaration.taxAmount,
+          'Statut': declaration.status,
+          'Activité': declaration.activityType,
+          'Date': new Date(declaration.createdAt).toLocaleDateString('fr-FR'),
+          'Vendeur': `${declaration['user.firstName']} ${declaration['user.lastName']}`,
+          'Téléphone': declaration['user.phoneNumber'],
+          'Région': declaration['user.zone.name']
+        }));
+
+        filename = `declarations_in-tax_${new Date().toISOString().split('T')[0]}`;
+        headers = ['Période', 'Montant', 'Taxe', 'Statut', 'Activité', 'Date', 'Vendeur', 'Téléphone', 'Région'];
+        fields = headers;
+        break;
+
+      case 'payments':
+        data = await Payment.findAll({
+          include: [
+            { 
+              model: User, 
+              as: 'user', 
+              attributes: ['firstName', 'lastName', 'phoneNumber'] 
+            },
+            { 
+              model: Declaration, 
+              as: 'declaration', 
+              attributes: ['period'] 
+            }
+          ],
+          attributes: ['amount', 'provider', 'status', 'createdAt', 'transactionId'],
+          raw: true
+        });
+
+        data = data.map(payment => ({
+          'Montant': payment.amount,
+          'Moyen de paiement': payment.provider,
+          'Statut': payment.status,
+          'Date': new Date(payment.createdAt).toLocaleDateString('fr-FR'),
+          'Transaction': payment.transactionId,
+          'Vendeur': `${payment['user.firstName']} ${payment['user.lastName']}`,
+          'Téléphone': payment['user.phoneNumber'],
+          'Période': payment['declaration.period']
+        }));
+
+        filename = `paiements_in-tax_${new Date().toISOString().split('T')[0]}`;
+        headers = ['Montant', 'Moyen de paiement', 'Statut', 'Date', 'Transaction', 'Vendeur', 'Téléphone', 'Période'];
+        fields = headers;
+        break;
+
+      case 'dashboard':
+        // Données agrégées pour le dashboard
+        const dashboardData = await getDashboardData();
+        data = [dashboardData];
+        filename = `dashboard_in-tax_${new Date().toISOString().split('T')[0]}`;
+        headers = ['Métrique', 'Valeur'];
+        fields = headers;
+        break;
+
+      default:
+        return res.status(400).json({
+          success: false,
+          message: "Type d'export non supporté"
+        });
+    }
+
+    // Génération selon le format
+    switch (format.toLowerCase()) {
+      case 'csv':
+        const csvContent = ExportUtils.generateCSV(data, fields);
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
+        return res.send(csvContent);
+
+      case 'pdf':
+        const pdfContent = await ExportUtils.generatePDFTable(data, headers, `Export ${type} - In-Tax`, headers);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}.pdf"`);
+        return res.send(pdfContent);
+
+      case 'excel':
+        const excelContent = await ExportUtils.generateExcel(data, headers, `Export ${type}`);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`);
+        return res.send(excelContent);
+
+      default:
+        return res.status(400).json({
+          success: false,
+          message: "Format d'export non supporté"
+        });
+    }
+
+  } catch (error) {
+    console.error("Erreur export:", error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur lors de l'export des données: " + error.message
+    });
   }
+},
+
+// Helper pour les données dashboard
+
+async  getDashboardData() {
+  const totalUsers = await User.count();
+  const totalDeclarations = await Declaration.count();
+  const totalPayments = await Payment.count({ where: { status: 'COMPLETED' } });
+  const totalRevenue = await Payment.sum('amount', { where: { status: 'COMPLETED' } }) || 0;
+  const pendingDeclarations = await Declaration.count({ where: { status: 'PENDING' } });
+
+  return {
+    'Métrique': 'Statistiques Dashboard',
+    'Valeur': `Utilisateurs: ${totalUsers} | Déclarations: ${totalDeclarations} | Paiements: ${totalPayments} | Revenus: ${totalRevenue} MGA | En attente: ${pendingDeclarations}`
+  };
+}
+
 };
 
 module.exports = adminController;
