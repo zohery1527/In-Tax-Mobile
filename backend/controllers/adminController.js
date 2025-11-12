@@ -3,12 +3,15 @@ const { User, Declaration, Payment, Zone, NIFHistory } = db;
 const ExportUtils = require('../utils/exportUtils');
 
 const adminController = {
+
+  // Dashboard général
   async getDashboard(req, res) {
     try {
       const totalUsers = await User.count();
       const totalDeclarations = await Declaration.count();
       const totalPayments = await Payment.count({ where: { status: 'COMPLETED' } });
       const totalRevenue = await Payment.sum('amount', { where: { status: 'COMPLETED' } }) || 0;
+      const pendingDeclarations = await Declaration.count({ where: { status: 'PENDING' } });
 
       const recentDeclarations = await Declaration.findAll({
         where: { status: "PENDING" },
@@ -34,7 +37,7 @@ const adminController = {
             totalDeclarations,
             totalPayments,
             totalRevenue,
-            pendingDeclarations: await Declaration.count({ where: { status: 'PENDING' } })
+            pendingDeclarations
           },
           recentDeclarations
         }
@@ -48,6 +51,7 @@ const adminController = {
     }
   },
 
+  // Validation NIF
   async validateNIF(req, res) {
     try {
       const { userId, action, reason } = req.body;
@@ -60,20 +64,15 @@ const adminController = {
       }
 
       const user = await User.findByPk(userId);
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: "Utilisateur non trouvé"
-        });
-      }
+      if (!user) return res.status(404).json({ success:false, message:"Utilisateur non trouvé" });
 
       await user.update({ nifStatus: action });
 
       await NIFHistory.create({
         userId,
         nifNumber: user.nifNumber,
-        action: action,
-        reason: reason,
+        action,
+        reason,
         performedBy: req.user.id,
         metadata: {
           validatedAt: new Date().toISOString(),
@@ -84,38 +83,26 @@ const adminController = {
       res.json({
         success: true,
         message: `NIF ${action === 'VALIDATED' ? 'validé' : 'rejeté'}`,
-        data: {
-          user: {
-            id: user.id,
-            nifNumber: user.nifNumber,
-            nifStatus: action
-          }
-        }
+        data: { user: { id: user.id, nifNumber: user.nifNumber, nifStatus: action } }
       });
     } catch (error) {
       console.error("Erreur validation NIF:", error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur lors de la validation du NIF"
-      });
+      res.status(500).json({ success:false, message:"Erreur lors de la validation du NIF" });
     }
   },
 
+  // Liste des déclarations en attente
   async getPendingDeclarations(req, res) {
     try {
       const { page = 1, limit = 20 } = req.query;
-      
+
       const declarations = await Declaration.findAndCountAll({
         where: { status: 'PENDING' },
         include: [{
           model: User,
           as: 'user',
           attributes: ['id', 'firstName', 'lastName', 'phoneNumber', 'nifNumber', 'nifStatus'],
-          include: [{
-            model: Zone,
-            as: 'zone',
-            attributes: ['name', 'region']
-          }]
+          include: [{ model: Zone, as: 'zone', attributes: ['name', 'region'] }]
         }],
         order: [['createdAt', 'ASC']],
         limit: parseInt(limit),
@@ -133,314 +120,240 @@ const adminController = {
       });
     } catch (error) {
       console.error('Erreur liste déclarations:', error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur lors de la récupération des déclarations"
-      });
+      res.status(500).json({ success:false, message:"Erreur lors de la récupération des déclarations" });
     }
   },
 
+  // Validation déclaration
   async validateDeclaration(req, res) {
     try {
       const { declarationId } = req.params;
 
-      const declaration = await Declaration.findByPk(declarationId, {
-        include: [{
-          model: User,
-          as: 'user'
-        }]
-      });
+      const declaration = await Declaration.findByPk(declarationId, { include: [{ model: User, as: 'user' }] });
+      if(!declaration) return res.status(404).json({ success:false, message:"Déclaration non trouvée" });
 
-      if (!declaration) {
-        return res.status(404).json({
-          success: false,
-          message: "Déclaration non trouvée"
-        });
-      }
-
-      if (declaration.status !== 'PENDING') {
-        return res.status(400).json({
-          success: false,
-          message: "Cette déclaration a déjà été traitée"
-        });
+      if(declaration.status !== 'PENDING') {
+        return res.status(400).json({ success:false, message:"Cette déclaration a déjà été traitée" });
       }
 
       await declaration.update({ status: "VALIDATED" });
-
-      res.json({
-        success: true,
-        message: "Déclaration validée avec succès"
-      });
-    } catch (error) {
+      res.json({ success:true, message:"Déclaration validée avec succès" });
+    } catch(error) {
       console.error("Erreur validation déclaration:", error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur lors de la validation de la déclaration"
-      });
+      res.status(500).json({ success:false, message:"Erreur lors de la validation de la déclaration" });
     }
   },
 
+  // Confirmation paiement manuel
   async confirmPaymentManual(req, res) {
     try {
       const { paymentId } = req.params;
-
       const payment = await Payment.findByPk(paymentId, {
-        include: [
-          { model: Declaration, as: 'declaration' },
-          { model: User, as: 'user' }
-        ]
+        include: [{ model: Declaration, as: 'declaration' }, { model: User, as: 'user' }]
       });
 
-      if (!payment) {
-        return res.status(404).json({
-          success: false,
-          message: "Paiement non trouvé"
-        });
-      }
+      if(!payment) return res.status(404).json({ success:false, message:"Paiement non trouvé" });
 
       payment.status = 'COMPLETED';
-      payment.metadata = {
-        ...payment.metadata,
-        manuallyConfirmed: true,
-        confirmedBy: req.user.id,
-        confirmedAt: new Date().toISOString()
-      };
-
+      payment.metadata = { ...payment.metadata, manuallyConfirmed:true, confirmedBy:req.user.id, confirmedAt:new Date().toISOString() };
       await payment.save();
-      await payment.declaration.update({ status: 'PAID' });
+      await payment.declaration.update({ status:'PAID' });
 
-      res.json({
-        success: true,
-        message: "Paiement confirmé manuellement",
-        data: { payment }
-      });
-    } catch (error) {
+      res.json({ success:true, message:"Paiement confirmé manuellement", data:{ payment } });
+    } catch(error){
       console.error("Erreur confirmation manuelle:", error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur lors de la confirmation du paiement"
-      });
+      res.status(500).json({ success:false, message:"Erreur lors de la confirmation du paiement" });
     }
   },
 
+  // Liste utilisateurs
   async getAllUsers(req, res) {
     try {
-      const { page = 1, limit = 20, role, zoneId } = req.query;
-      
+      const { page=1, limit=20, role, zoneId } = req.query;
       const whereClause = {};
-      if (role) whereClause.role = role;
-      if (zoneId) whereClause.zoneId = zoneId;
-
-      if (req.user.role === 'AGENT') {
-        whereClause.zoneId = req.user.zoneId;
-        whereClause.role = 'VENDEUR';
-      }
+      if(role) whereClause.role = role;
+      if(zoneId) whereClause.zoneId = zoneId;
+      if(req.user.role === 'AGENT') { whereClause.zoneId=req.user.zoneId; whereClause.role='VENDEUR'; }
 
       const users = await User.findAndCountAll({
         where: whereClause,
-        include: [{
-          model: Zone,
-          as: 'zone',
-          attributes: ['name', 'region']
-        }],
-        attributes: { exclude: ['password'] },
+        include:[{ model: Zone, as:'zone', attributes:['name','region'] }],
+        attributes:{ exclude:['password'] },
         limit: parseInt(limit),
-        offset: (parseInt(page) - 1) * parseInt(limit),
-        order: [['createdAt', 'DESC']]
+        offset:(parseInt(page)-1)*parseInt(limit),
+        order:[['createdAt','DESC']]
       });
 
       res.json({
-        success: true,
-        data: {
+        success:true,
+        data:{
           users: users.rows,
           total: users.count,
           page: parseInt(page),
-          totalPages: Math.ceil(users.count / limit)
+          totalPages: Math.ceil(users.count/limit)
         }
       });
-    } catch (error) {
+    } catch(error){
       console.error('Erreur liste utilisateurs:', error);
-      res.status(500).json({
-        success: false,
-        message: "Erreur lors de la récupération des utilisateurs"
-      });
+      res.status(500).json({ success:false, message:"Erreur lors de la récupération des utilisateurs" });
     }
   },
 
+  // Export des données
   async exportData(req, res) {
-  try {
-    const { type } = req.params;
-    const { format = 'csv' } = req.query;
+    try {
+      const { type } = req.params;
+      const { format='csv' } = req.query;
 
-    let data, filename, headers, fields;
+      let data, filename, headers, fields;
 
-    switch (type) {
-      case 'users':
-        data = await User.findAll({
-          include: [{ 
-            model: Zone, 
-            as: 'zone',
-            attributes: ['name', 'region']
-          }],
-          attributes: [
-            'firstName', 'lastName', 'phoneNumber', 
-            'nifNumber', 'nifStatus', 'activityType', 
-            'createdAt', 'isActive'
-          ],
-          raw: true
-        });
-        
-        // Mapping pour l'export
-        data = data.map(user => ({
-          'Prénom': user.firstName,
-          'Nom': user.lastName,
-          'Téléphone': user.phoneNumber,
-          'NIF': user.nifNumber,
-          'Statut NIF': user.nifStatus,
-          'Activité': user.activityType,
-          'Région': user['zone.name'],
-          'Date inscription': new Date(user.createdAt).toLocaleDateString('fr-FR'),
-          'Statut': user.isActive ? 'Actif' : 'Inactif'
-        }));
+      switch(type){
+        case 'users':
+          data = await User.findAll({
+            include:[{ model:Zone, as:'zone', attributes:['name','region']}],
+            attributes:['firstName','lastName','phoneNumber','nifNumber','nifStatus','activityType','createdAt','isActive'],
+            raw:true
+          });
+          data = data.map(u=>({
+            'Prénom':u.firstName,'Nom':u.lastName,'Téléphone':u.phoneNumber,
+            'NIF':u.nifNumber,'Statut NIF':u.nifStatus,'Activité':u.activityType,
+            'Région':u['zone.name'],'Date inscription':new Date(u.createdAt).toLocaleDateString('fr-FR'),
+            'Statut':u.isActive?'Actif':'Inactif'
+          }));
+          filename = `utilisateurs_${new Date().toISOString().split('T')[0]}`;
+          headers = fields = ['Prénom','Nom','Téléphone','NIF','Statut NIF','Activité','Région','Date inscription','Statut'];
+          break;
 
-        filename = `utilisateurs_in-tax_${new Date().toISOString().split('T')[0]}`;
-        headers = ['Prénom', 'Nom', 'Téléphone', 'NIF', 'Statut NIF', 'Activité', 'Région', 'Date inscription', 'Statut'];
-        fields = headers;
-        break;
+        case 'declarations':
+          data = await Declaration.findAll({
+            include:[{
+              model:User, as:'user', attributes:['firstName','lastName','phoneNumber'],
+              include:[{ model:Zone, as:'zone', attributes:['name'] }]
+            }],
+            attributes:['period','amount','taxAmount','status','activityType','createdAt'],
+            raw:true
+          });
+          data = data.map(d=>({
+            'Période':d.period,'Montant':d.amount,'Taxe':d.taxAmount,'Statut':d.status,
+            'Activité':d.activityType,'Date':new Date(d.createdAt).toLocaleDateString('fr-FR'),
+            'Vendeur':`${d['user.firstName']} ${d['user.lastName']}`,'Téléphone':d['user.phoneNumber'],
+            'Région':d['user.zone.name']
+          }));
+          filename = `declarations_${new Date().toISOString().split('T')[0]}`;
+          headers = fields = ['Période','Montant','Taxe','Statut','Activité','Date','Vendeur','Téléphone','Région'];
+          break;
 
-      case 'declarations':
-        data = await Declaration.findAll({
-          include: [{
-            model: User,
-            as: 'user',
-            attributes: ['firstName', 'lastName', 'phoneNumber'],
-            include: [{ 
-              model: Zone, 
-              as: 'zone', 
-              attributes: ['name'] 
-            }]
-          }],
-          attributes: ['period', 'amount', 'taxAmount', 'status', 'activityType', 'createdAt'],
-          raw: true
-        });
+        case 'payments':
+          data = await Payment.findAll({
+            include:[
+              { model:User, as:'user', attributes:['firstName','lastName','phoneNumber'] },
+              { model:Declaration, as:'declaration', attributes:['period'] }
+            ],
+            attributes:['amount','provider','status','createdAt','transactionId'],
+            raw:true
+          });
+          data = data.map(p=>({
+            'Montant':p.amount,'Moyen de paiement':p.provider,'Statut':p.status,
+            'Date':new Date(p.createdAt).toLocaleDateString('fr-FR'),'Transaction':p.transactionId,
+            'Vendeur':`${p['user.firstName']} ${p['user.lastName']}`,'Téléphone':p['user.phoneNumber'],
+            'Période':p['declaration.period']
+          }));
+          filename = `paiements_${new Date().toISOString().split('T')[0]}`;
+          headers = fields = ['Montant','Moyen de paiement','Statut','Date','Transaction','Vendeur','Téléphone','Période'];
+          break;
 
-        data = data.map(declaration => ({
-          'Période': declaration.period,
-          'Montant': declaration.amount,
-          'Taxe': declaration.taxAmount,
-          'Statut': declaration.status,
-          'Activité': declaration.activityType,
-          'Date': new Date(declaration.createdAt).toLocaleDateString('fr-FR'),
-          'Vendeur': `${declaration['user.firstName']} ${declaration['user.lastName']}`,
-          'Téléphone': declaration['user.phoneNumber'],
-          'Région': declaration['user.zone.name']
-        }));
+        default:
+          return res.status(400).json({ success:false, message:"Type d'export non supporté" });
+      }
 
-        filename = `declarations_in-tax_${new Date().toISOString().split('T')[0]}`;
-        headers = ['Période', 'Montant', 'Taxe', 'Statut', 'Activité', 'Date', 'Vendeur', 'Téléphone', 'Région'];
-        fields = headers;
-        break;
+      // Export selon format
+      switch(format.toLowerCase()){
+        case 'csv':
+          const csvContent = ExportUtils.generateCSV(data, fields);
+          res.setHeader('Content-Type','text/csv; charset=utf-8');
+          res.setHeader('Content-Disposition',`attachment; filename="${filename}.csv"`);
+          return res.send(csvContent);
 
-      case 'payments':
-        data = await Payment.findAll({
-          include: [
-            { 
-              model: User, 
-              as: 'user', 
-              attributes: ['firstName', 'lastName', 'phoneNumber'] 
-            },
-            { 
-              model: Declaration, 
-              as: 'declaration', 
-              attributes: ['period'] 
-            }
-          ],
-          attributes: ['amount', 'provider', 'status', 'createdAt', 'transactionId'],
-          raw: true
-        });
+        case 'pdf':
+          const pdfContent = await ExportUtils.generatePDFTable(data, headers, `Export ${type}`, headers);
+          res.setHeader('Content-Type','application/pdf');
+          res.setHeader('Content-Disposition',`attachment; filename="${filename}.pdf"`);
+          return res.send(pdfContent);
 
-        data = data.map(payment => ({
-          'Montant': payment.amount,
-          'Moyen de paiement': payment.provider,
-          'Statut': payment.status,
-          'Date': new Date(payment.createdAt).toLocaleDateString('fr-FR'),
-          'Transaction': payment.transactionId,
-          'Vendeur': `${payment['user.firstName']} ${payment['user.lastName']}`,
-          'Téléphone': payment['user.phoneNumber'],
-          'Période': payment['declaration.period']
-        }));
+        case 'excel':
+          const excelContent = await ExportUtils.generateExcel(data, headers, `Export ${type}`);
+          res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+          res.setHeader('Content-Disposition',`attachment; filename="${filename}.xlsx"`);
+          return res.send(excelContent);
 
-        filename = `paiements_in-tax_${new Date().toISOString().split('T')[0]}`;
-        headers = ['Montant', 'Moyen de paiement', 'Statut', 'Date', 'Transaction', 'Vendeur', 'Téléphone', 'Période'];
-        fields = headers;
-        break;
+        default:
+          return res.status(400).json({ success:false, message:"Format d'export non supporté" });
+      }
 
-      case 'dashboard':
-        // Données agrégées pour le dashboard
-        const dashboardData = await getDashboardData();
-        data = [dashboardData];
-        filename = `dashboard_in-tax_${new Date().toISOString().split('T')[0]}`;
-        headers = ['Métrique', 'Valeur'];
-        fields = headers;
-        break;
-
-      default:
-        return res.status(400).json({
-          success: false,
-          message: "Type d'export non supporté"
-        });
+    } catch(error){
+      console.error("Erreur export:", error);
+      res.status(500).json({ success:false, message:"Erreur lors de l'export des données: "+error.message });
     }
+  },
 
-    // Génération selon le format
-    switch (format.toLowerCase()) {
-      case 'csv':
-        const csvContent = ExportUtils.generateCSV(data, fields);
-        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
-        return res.send(csvContent);
+  // Résumé statistiques
+  async getSummary(req,res){
+    try{
+      const revenueByRegion = await Declaration.findAll({
+        include:[{ model:User, as:'user', include:[{model:Zone,as:'zone',attributes:['name']}] }],
+        where:{ status:'PAID' },
+        attributes:[[db.Sequelize.col('user.zone.name'),'region'], [db.Sequelize.fn('SUM',db.Sequelize.col('taxAmount')),'revenue']],
+        group:['user.zone.name'],
+        raw:true
+      });
 
-      case 'pdf':
-        const pdfContent = await ExportUtils.generatePDFTable(data, headers, `Export ${type} - In-Tax`, headers);
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}.pdf"`);
-        return res.send(pdfContent);
+      const topSellers = await User.findAll({
+        where:{ role:'VENDEUR' },
+        include:[{ model:Declaration, as:'declarations', attributes:[
+          [db.Sequelize.fn('COUNT',db.Sequelize.col('declarations.id')),'declarationCount'],
+          [db.Sequelize.fn('SUM',db.Sequelize.col('declarations.taxAmount')),'totalRevenue']
+        ]}],
+        attributes:['id','firstName','lastName','phoneNumber'],
+        order:[[db.Sequelize.literal('"totalRevenue"'),'DESC']],
+        limit:10,
+        subQuery:false
+      });
 
-      case 'excel':
-        const excelContent = await ExportUtils.generateExcel(data, headers, `Export ${type}`);
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`);
-        return res.send(excelContent);
+      const monthlyStats = await Declaration.findAll({
+        attributes:[
+          [db.Sequelize.fn('DATE_TRUNC','month',db.Sequelize.col('createdAt')),'month'],
+          [db.Sequelize.fn('COUNT',db.Sequelize.col('id')),'declarationCount'],
+          [db.Sequelize.fn('SUM',db.Sequelize.col('taxAmount')),'totalRevenue']
+        ],
+        group:[db.Sequelize.fn('DATE_TRUNC','month',db.Sequelize.col('createdAt'))],
+        order:[[db.Sequelize.fn('DATE_TRUNC','month',db.Sequelize.col('createdAt')),'ASC']],
+        raw:true
+      });
 
-      default:
-        return res.status(400).json({
-          success: false,
-          message: "Format d'export non supporté"
-        });
+      res.json({
+        success:true,
+        data:{
+          revenueByRegion,
+          topSellers:topSellers.map(s=>({
+            id:s.id,
+            name:`${s.firstName} ${s.lastName}`,
+            phone:s.phoneNumber,
+            declarationCount:s.declarations?.[0]?.dataValues?.declarationCount||0,
+            totalRevenue:s.declarations?.[0]?.dataValues?.totalRevenue||0
+          })),
+          monthlyStats:monthlyStats.map(m=>({
+            month:m.month,
+            declarationCount:parseInt(m.declarationCount),
+            totalRevenue:parseFloat(m.totalRevenue)||0
+          }))
+        }
+      });
+
+    } catch(error){
+      console.error("Erreur résumé:",error);
+      res.status(500).json({ success:false, message:"Erreur lors de la récupération du résumé" });
     }
-
-  } catch (error) {
-    console.error("Erreur export:", error);
-    res.status(500).json({
-      success: false,
-      message: "Erreur lors de l'export des données: " + error.message
-    });
   }
-},
-
-// Helper pour les données dashboard
-
-async  getDashboardData() {
-  const totalUsers = await User.count();
-  const totalDeclarations = await Declaration.count();
-  const totalPayments = await Payment.count({ where: { status: 'COMPLETED' } });
-  const totalRevenue = await Payment.sum('amount', { where: { status: 'COMPLETED' } }) || 0;
-  const pendingDeclarations = await Declaration.count({ where: { status: 'PENDING' } });
-
-  return {
-    'Métrique': 'Statistiques Dashboard',
-    'Valeur': `Utilisateurs: ${totalUsers} | Déclarations: ${totalDeclarations} | Paiements: ${totalPayments} | Revenus: ${totalRevenue} MGA | En attente: ${pendingDeclarations}`
-  };
-}
 
 };
 

@@ -1,39 +1,50 @@
-import { Navigate, Route, Routes } from "react-router-dom";
-import ProtectedRoute from "./components/ProtectedRoute";
-import Dashboard from "./pages/Dashboard";
-import Declarations from "./pages/Declarations";
-import Login from "./pages/Login";
-import Payments from "./pages/Payments";
-import Profile from "./pages/Profile";
-import Users from "./pages/Users";
+import { Navigate, Route, Routes } from 'react-router-dom';
+import Header from './components/Header';
+import ProtectedRoute from './components/ProtectedRoute';
+import Sidebar from './components/Sidebar';
+import Dashboard from './pages/Dashboard';
+import Declarations from './pages/Declarations';
+import ExportData from './pages/ExportData';
+import Login from './pages/Login';
+import NIFValidation from './pages/NIFValidation';
+import OTPVerification from './pages/OTPVerification';
+import Payments from './pages/Payments';
+import Users from './pages/Users';
 
-export default function App(){
+function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+    <div className="flex h-screen bg-gray-100">
+      {/* Sidebar */}
+      <Sidebar />
 
-      <Route path="/dashboard" element={
-        <ProtectedRoute><Dashboard /></ProtectedRoute>
-      } />
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <Header />
 
-      <Route path="/declarations" element={
-        <ProtectedRoute><Declarations /></ProtectedRoute>
-      } />
+        {/* Contenu principal */}
+        <main className="flex-1 p-6 overflow-auto">
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/otp" element={<OTPVerification />} />
 
-      <Route path="/payments" element={
-        <ProtectedRoute><Payments /></ProtectedRoute>
-      } />
+            {/* Routes protégées */}
+            <Route element={<ProtectedRoute allowedRoles={['ADMIN', 'AGENT']} />}>
+              <Route path="/" element={<Navigate to="/dashboard" />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/users" element={<Users />} />
+              <Route path="/declarations" element={<Declarations />} />
+              <Route path="/payments" element={<Payments />} />
+              <Route path="/nif-validation" element={<NIFValidation />} />
+              <Route path="/export" element={<ExportData />} />
+            </Route>
 
-      <Route path="/users" element={
-        <ProtectedRoute><Users /></ProtectedRoute>
-      } />
-
-      <Route path="/profile" element={
-        <ProtectedRoute><Profile /></ProtectedRoute>
-      } />
-
-      <Route path="*" element={<div className="p-6">Page non trouvée</div>} />
-    </Routes>
+            {/* Route fallback */}
+            <Route path="*" element={<div className="text-center text-red-500 text-xl">Page non trouvée</div>} />
+          </Routes>
+        </main>
+      </div>
+    </div>
   );
 }
+
+export default App;

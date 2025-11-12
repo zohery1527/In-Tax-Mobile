@@ -1,73 +1,45 @@
-import { useEffect, useState } from "react";
-import Swal from "sweetalert2";
-import Navbar from "../components/Navbar";
-import Sidebar from "../components/Sidebar";
-import Table from "../components/Table";
-import { getPendingDeclarations, validateDeclaration } from "../services/adminServices";
+import { useEffect, useState } from 'react';
+import Table from '../components/Table';
+import { getPendingDeclarations, validateDeclaration } from '../services/declarationService';
 
-export default function Declarations(){
-  const [data, setData] = useState([]);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+const Declarations = () => {
+  const [declarations, setDeclarations] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const load = async (p=1) => {
-    try{
-      const res = await getPendingDeclarations(p);
-      const d = res.data.data;
-      setData(d.declarations || []);
-      setPage(d.page || p);
-      setTotalPages(d.totalPages || 1);
-    }catch(err){
-      console.error(err);
-      Swal.fire("Erreur", "Impossible de charger", "error");
-    }
+  const fetchDeclarations = async () => {
+    setLoading(true);
+    const res = await getPendingDeclarations();
+    if(res.success) setDeclarations(res.data.declarations);
+    setLoading(false);
   };
-
-  useEffect(()=>{ load(1); }, []);
 
   const handleValidate = async (id) => {
-    const r = await Swal.fire({
-      title: "Valider la déclaration ?",
-      icon: "question",
-      showCancelButton: true,
-      confirmButtonText: "Valider"
-    });
-    if(r.isConfirmed){
-      try{
-        await validateDeclaration(id);
-        Swal.fire("Succès", "Déclaration validée", "success");
-        load(page);
-      }catch(e){
-        Swal.fire("Erreur", "La validation a échoué", "error");
-      }
-    }
+    const res = await validateDeclaration(id);
+    if(res.success) fetchDeclarations();
   };
 
-  return (
-    <div className="min-h-screen flex">
-      <Sidebar />
-      <div className="flex-1">
-        <Navbar />
-        <main className="p-6">
-          <h1 className="text-2xl font-bold mb-4">Déclarations en attente</h1>
-          <Table
-            columns={[
-              { key: "id", title: "ID" },
-              { key: "user", title: "Vendeur", render: r => `${r.user?.firstName || r.user?.fullname || '-'} ${r.user?.lastName || ''}` },
-              { key: "period", title: "Période" },
-              { key: "revenue", title: "Revenu", render: r => `${r.revenue || r.amount || 0} Ar` }
-            ]}
-            data={data}
-            actions={(row) => <button onClick={()=>handleValidate(row.id)} className="bg-green-600 text-white px-3 py-1 rounded">Valider</button>}
-          />
+  useEffect(()=> { fetchDeclarations(); }, []);
 
-          <div className="mt-4 flex gap-2">
-            <button disabled={page<=1} onClick={()=>load(page-1)} className="px-3 py-1 border rounded">Préc</button>
-            <div className="px-3 py-1 border rounded">Page {page} / {totalPages}</div>
-            <button disabled={page>=totalPages} onClick={()=>load(page+1)} className="px-3 py-1 border rounded">Suiv</button>
-          </div>
-        </main>
-      </div>
+  const columns = [
+    { key: 'period', label: 'Période' },
+    { key: 'amount', label: 'Montant' },
+    { key: 'taxAmount', label: 'Taxe' },
+    { key: 'status', label: 'Statut' },
+    { key: 'activityType', label: 'Activité' },
+    { key: 'user.firstName', label: 'Vendeur' },
+    { key: 'user.zone.name', label: 'Région' },
+    { key: 'createdAt', label: 'Date', render: row => new Date(row.createdAt).toLocaleDateString('fr-FR') },
+    { key: 'actions', label: 'Actions', render: row => (
+      <button onClick={()=>handleValidate(row.id)} className="bg-green-600 text-white px-2 py-1 rounded">Valider</button>
+    )}
+  ];
+
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">Déclarations en attente</h1>
+      {loading ? <div>Chargement...</div> : <Table data={declarations} columns={columns}/>}
     </div>
   );
-}
+};
+
+export default Declarations;

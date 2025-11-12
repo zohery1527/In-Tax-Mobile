@@ -1,62 +1,43 @@
-import { useEffect, useState } from "react";
-import Swal from "sweetalert2";
-import Navbar from "../components/Navbar";
-import Sidebar from "../components/Sidebar";
-import Table from "../components/Table";
-import { confirmPayment, getPayments } from "../services/adminServices";
+import { useEffect, useState } from 'react';
+import Table from '../components/Table';
+import { confirmPaymentManual, getPayments } from '../services/paymentService';
 
-export default function Payments(){
+const Payments = () => {
   const [payments, setPayments] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const load = async () => {
-    try{
-      const res = await getPayments();
-      setPayments(res.data.data.payments || res.data.data || []);
-    }catch(e){
-      console.error(e);
-      Swal.fire("Erreur", "Impossible de charger les paiements", "error");
-    }
+  const fetchPayments = async () => {
+    setLoading(true);
+    const res = await getPayments();
+    if(res.success) setPayments(res.data.payments);
+    setLoading(false);
   };
-
-  useEffect(()=>{ load(); }, []);
 
   const handleConfirm = async (id) => {
-    const r = await Swal.fire({
-      title: "Confirmer manuellement ?",
-      showCancelButton: true,
-      confirmButtonText: "Confirmer"
-    });
-    if(r.isConfirmed){
-      try{
-        await confirmPayment(id);
-        Swal.fire("Succès", "Paiement confirmé", "success");
-        load();
-      }catch(e){
-        Swal.fire("Erreur", "Impossible de confirmer", "error");
-      }
-    }
+    const res = await confirmPaymentManual(id);
+    if(res.success) fetchPayments();
   };
 
+  useEffect(()=>{ fetchPayments(); }, []);
+
+  const columns = [
+    { key: 'amount', label: 'Montant' },
+    { key: 'provider', label: 'Moyen de paiement' },
+    { key: 'status', label: 'Statut' },
+    { key: 'createdAt', label: 'Date', render: row => new Date(row.createdAt).toLocaleDateString('fr-FR') },
+    { key: 'user.firstName', label: 'Vendeur' },
+    { key: 'declaration.period', label: 'Période' },
+    { key: 'actions', label: 'Actions', render: row => row.status !== 'COMPLETED' && (
+      <button onClick={()=>handleConfirm(row.id)} className="bg-green-600 text-white px-2 py-1 rounded">Confirmer</button>
+    )}
+  ];
+
   return (
-    <div className="min-h-screen flex">
-      <Sidebar />
-      <div className="flex-1">
-        <Navbar />
-        <main className="p-6">
-          <h1 className="text-2xl font-bold mb-4">Paiements</h1>
-          <Table
-            columns={[
-              { key: "id", title: "#" },
-              { key: "user", title: "Vendeur", render: r => r.user?.fullname || r.user?.firstName || '-' },
-              { key: "amount", title: "Montant", render: r => `${r.amount} Ar`},
-              { key: "status", title: "Statut" },
-              { key: "createdAt", title: "Date", render: r => new Date(r.createdAt).toLocaleDateString() }
-            ]}
-            data={payments}
-            actions={(row) => row.status !== 'COMPLETED' ? <button onClick={()=>handleConfirm(row.id)} className="bg-blue-600 text-white px-3 py-1 rounded">Confirmer</button> : <span className="text-green-600">Confirmé</span>}
-          />
-        </main>
-      </div>
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">Paiements</h1>
+      {loading ? <div>Chargement...</div> : <Table data={payments} columns={columns}/>}
     </div>
   );
-}
+};
+
+export default Payments;

@@ -1,44 +1,49 @@
-import { useEffect, useState } from "react";
-import Swal from "sweetalert2";
-import Navbar from "../components/Navbar";
-import Sidebar from "../components/Sidebar";
-import Table from "../components/Table";
-import { getUsers } from "../services/adminServices";
+import { useEffect, useState } from 'react';
+import Table from '../components/Table';
+import { getUsers, validateNIF } from '../services/userService';
 
-export default function Users(){
+const Users = () => {
   const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const load = async () => {
-    try{
-      const res = await getUsers();
-      setUsers(res.data.data.users || res.data.data || []);
-    }catch(e){
-      console.error(e);
-      Swal.fire("Erreur", "Impossible de charger les utilisateurs", "error");
-    }
+  const fetchUsers = async () => {
+    setLoading(true);
+    const res = await getUsers();
+    if(res.success) setUsers(res.data.users);
+    setLoading(false);
   };
 
-  useEffect(()=>{ load(); }, []);
+  const handleValidateNIF = async (userId, action) => {
+    const reason = action === 'REJECTED' ? prompt("Motif du rejet") : '';
+    const res = await validateNIF(userId, action, reason);
+    if(res.success) fetchUsers();
+  };
+
+  useEffect(()=> { fetchUsers(); }, []);
+
+  const columns = [
+    { key: 'firstName', label: 'Prénom' },
+    { key: 'lastName', label: 'Nom' },
+    { key: 'phoneNumber', label: 'Téléphone' },
+    { key: 'nifNumber', label: 'NIF' },
+    { key: 'nifStatus', label: 'Statut NIF' },
+    { key: 'activityType', label: 'Activité' },
+    { key: 'zone.name', label: 'Région' },
+    { key: 'createdAt', label: 'Date inscription', render: row => new Date(row.createdAt).toLocaleDateString('fr-FR') },
+    { key: 'actions', label: 'Actions', render: row => (
+        <div className="flex gap-2">
+          <button onClick={()=>handleValidateNIF(row.id,'VALIDATED')} className="bg-green-600 text-white px-2 py-1 rounded">Valider</button>
+          <button onClick={()=>handleValidateNIF(row.id,'REJECTED')} className="bg-red-600 text-white px-2 py-1 rounded">Rejeter</button>
+        </div>
+    )}
+  ];
 
   return (
-    <div className="min-h-screen flex">
-      <Sidebar />
-      <div className="flex-1">
-        <Navbar />
-        <main className="p-6">
-          <h1 className="text-2xl font-bold mb-4">Utilisateurs</h1>
-          <Table
-            columns={[
-              { key: "id", title: "ID" },
-              { key: "fullname", title: "Nom" },
-              { key: "phoneNumber", title: "Téléphone" },
-              { key: "nifNumber", title: "NIF" },
-              { key: "nifStatus", title: "Statut NIF" }
-            ]}
-            data={users}
-          />
-        </main>
-      </div>
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">Liste des utilisateurs</h1>
+      {loading ? <div>Chargement...</div> : <Table data={users} columns={columns}/>}
     </div>
   );
-}
+};
+
+export default Users;
