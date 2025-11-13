@@ -7,7 +7,6 @@ const adminController = {
   // Dashboard général (Optimisé avec Promise.all)
   async getDashboard(req, res) {
     try {
-      // Exécution des requêtes de comptage en parallèle pour la performance
       const [
         totalUsers,
         totalDeclarations,
@@ -38,7 +37,6 @@ const adminController = {
         })
       ]);
 
-
       res.json({
         success: true,
         data: {
@@ -61,7 +59,7 @@ const adminController = {
     }
   },
 
-  // Validation NIF (code inchangé)
+  // Validation NIF (inchangé)
   async validateNIF(req, res) {
     try {
       const { userId, action, reason } = req.body;
@@ -101,7 +99,7 @@ const adminController = {
     }
   },
 
-  // Liste des déclarations en attente (code inchangé)
+  // Liste des déclarations en attente (inchangé)
   async getPendingDeclarations(req, res) {
     try {
       const { page = 1, limit = 20 } = req.query;
@@ -124,7 +122,7 @@ const adminController = {
         data: {
           declarations: declarations.rows,
           total: declarations.count,
-          totalPages: Math.ceil(declarations.count / parseInt(limit))
+          totalPages: Math.ceil(declarations.count / parseInt(limit)) 
         }
       });
     } catch (error) {
@@ -133,7 +131,7 @@ const adminController = {
     }
   },
 
-  // Validation déclaration (code inchangé)
+  // Validation déclaration (inchangé)
   async validateDeclaration(req, res) {
     try {
       const { declarationId } = req.params;
@@ -144,7 +142,6 @@ const adminController = {
       if(declaration.status !== 'PENDING') {
         return res.status(400).json({ success:false, message:"Cette déclaration a déjà été traitée" });
       }
-
       await declaration.update({ status: "VALIDATED" });
       res.json({ success:true, message:"Déclaration validée avec succès" });
     } catch(error) {
@@ -153,7 +150,7 @@ const adminController = {
     }
   },
 
-  // Confirmation paiement manuel (code inchangé)
+  // Confirmation paiement manuel (inchangé)
   async confirmPaymentManual(req, res) {
     try {
       const { paymentId } = req.params;
@@ -163,6 +160,10 @@ const adminController = {
 
       if(!payment) return res.status(404).json({ success:false, message:"Paiement non trouvé" });
       
+      if(payment.status === 'COMPLETED') {
+        return res.status(400).json({ success:false, message:"Ce paiement est déjà complété" });
+      }
+
       payment.status = 'COMPLETED';
       payment.metadata = { ...payment.metadata, manuallyConfirmed:true, confirmedBy:req.user.id, confirmedAt:new Date().toISOString() };
       await payment.save();
@@ -175,7 +176,7 @@ const adminController = {
     }
   },
 
-  // Liste utilisateurs (code inchangé)
+  // Liste utilisateurs (inchangé)
   async getAllUsers(req, res) {
     try {
       const { page=1, limit=20, role, zoneId } = req.query;
@@ -208,7 +209,7 @@ const adminController = {
     }
   },
 
-  // Export des données (code inchangé)
+  // Export des données (inchangé)
   async exportData(req, res) {
     try {
       const { type } = req.params;
@@ -275,7 +276,6 @@ const adminController = {
           return res.status(400).json({ success:false, message:"Type d'export non supporté" });
       }
 
-      // Export selon format (code inchangé)
       switch(format.toLowerCase()){
         case 'csv':
           const csvContent = ExportUtils.generateCSV(data, fields);
@@ -305,29 +305,33 @@ const adminController = {
     }
   },
 
-  // Résumé statistiques (CORRIGÉ)
+  // Résumé statistiques (CORRIGÉ ET FINALISÉ)
   async getSummary(req,res){
     try{
-      // CORRECTION: Ajout de 'attributes:[]' à l'association 'user' pour éviter 
-      // l'erreur de "column must appear in the GROUP BY clause" (PostgreSQL 42803)
+      // CORRECTION FINALE: Exclure explicitement tous les attributs par défaut de User et Zone 
+      // pour ne sélectionner que les colonnes nécessaires à l'agrégation et au groupement.
       const revenueByRegion = await Declaration.findAll({
         include:[{ 
           model:User, 
           as:'user', 
-          attributes:[], // <--- FIX DU PROBLÈME SQL
+          attributes:[], // Exclut les colonnes de User (y compris 'user.id')
           include:[{
             model:Zone,
             as:'zone',
-            attributes:['name']
+            attributes:[], // <--- FIX DU DERNIER PROBLÈME : Exclut l'ID de la Zone ('user->zone.id')
           }] 
         }],
         where:{ status:'PAID' },
-        attributes:[[db.Sequelize.col('user.zone.name'),'region'], [db.Sequelize.fn('SUM',db.Sequelize.col('taxAmount')),'revenue']],
-        group:['user.zone.name', 'user->zone.name'], // Assure le regroupement correct
+        attributes:[
+          [db.Sequelize.col('user.zone.name'),'region'], 
+          [db.Sequelize.fn('SUM',db.Sequelize.col('taxAmount')),'revenue']
+        ],
+        // Le groupement doit inclure tous les champs non agrégés (ici, seul le nom de la zone est sélectionné)
+        group:['user.zone.name', 'user->zone.name'], 
         raw:true
       });
       
-      // Ajout du group explicite pour topSellers pour éviter de potentiels futurs problèmes SQL
+      // Top Sellers (Group By explicite maintenu pour la robustesse)
       const topSellers = await User.findAll({
         where:{ role:'VENDEUR' },
         include:[{ model:Declaration, as:'declarations', attributes:[
@@ -335,12 +339,13 @@ const adminController = {
           [db.Sequelize.fn('SUM',db.Sequelize.col('declarations.taxAmount')),'totalRevenue']
         ]}],
         attributes:['id','firstName','lastName','phoneNumber'],
-        group: ['User.id', 'User.firstName', 'User.lastName', 'User.phoneNumber'], // Ajout de GROUP BY
+        group: ['User.id', 'User.firstName', 'User.lastName', 'User.phoneNumber'],
         order:[[db.Sequelize.literal('totalRevenue'),'DESC']],
         limit:10,
         subQuery:false
       });
 
+      // Statistiques mensuelles (inchangé)
       const monthlyStats = await Declaration.findAll({
         attributes:[
           [db.Sequelize.fn('DATE_TRUNC','month',db.Sequelize.col('createdAt')),'month'],
