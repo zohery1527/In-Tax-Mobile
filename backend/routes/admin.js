@@ -13,6 +13,5 @@ router.get('/users', requireAdmin, adminController.getAllUsers);
 router.patch('/payments/:paymentId/confirm', requireAdmin, adminController.confirmPaymentManual);
 router.get('/export/:type', requireAdmin, adminController.exportData);
 router.get('/summary', requireAdmin, adminController.getSummary);
-router.get('/export/:type', requireAdmin, adminController.exportData);
 module.exports = router;
 

@@ -1,26 +1,25 @@
-import { useNavigate } from 'react-router-dom';
+import { LogoutIcon } from '@heroicons/react/outline';
 import authService from '../services/authService';
 
-const Header = ({ user }) => {
-  const navigate = useNavigate();
-
+const Header = ({ user, setUser }) => {
   const handleLogout = () => {
     authService.logout();
-    navigate('/login');
+    setUser(null);
+    window.location.href = '/login'; // redirection après déconnexion
   };
 
   return (
-    <header className="bg-blue-600 text-white flex justify-between items-center p-4 shadow-md">
-      <div className="text-xl font-bold">In-Tax Admin</div>
-      <div className="flex items-center space-x-4">
-        <span>{user?.firstName} {user?.lastName}</span>
-        <button
-          onClick={handleLogout}
-          className="bg-red-500 hover:bg-red-600 px-3 py-1 rounded"
-        >
-          Déconnexion
-        </button>
-      </div>
+    <header className="flex items-center justify-between bg-white shadow px-6 py-3 border-b">
+      <h1 className="text-xl font-semibold text-gray-800">
+        Tableau de bord - {user?.role || 'Utilisateur'}
+      </h1>
+      <button
+        onClick={handleLogout}
+        className="flex items-center gap-2 text-red-600 hover:text-red-800 font-medium"
+      >
+        <LogoutIcon className="h-6 w-6" />
+        Déconnexion
+      </button>
     </header>
   );
 };

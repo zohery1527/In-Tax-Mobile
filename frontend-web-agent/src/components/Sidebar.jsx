@@ -1,20 +1,47 @@
+// src/components/Sidebar.jsx
+import {
+  CheckCircleIcon,
+  CreditCardIcon,
+  DocumentTextIcon,
+  DownloadIcon,
+  HomeIcon,
+  UserIcon,
+} from '@heroicons/react/outline';
 import { NavLink } from 'react-router-dom';
 
-const Sidebar = () => {
-  const linkClasses = ({ isActive }) =>
-    isActive
-      ? 'block py-2 px-4 bg-blue-500 text-white rounded mb-1'
-      : 'block py-2 px-4 hover:bg-blue-200 rounded mb-1';
+const Sidebar = ({ user }) => {
+  const menuItems = [
+    { name: 'Dashboard', path: '/', icon: <HomeIcon className="h-5 w-5" /> },
+    { name: 'Utilisateurs', path: '/users', icon: <UserIcon className="h-5 w-5" /> },
+    { name: 'Déclarations', path: '/declarations', icon: <DocumentTextIcon className="h-5 w-5" /> },
+    { name: 'Paiements', path: '/payments', icon: <CreditCardIcon className="h-5 w-5" /> },
+    { name: 'Validation NIF', path: '/nif-validation', icon: <CheckCircleIcon className="h-5 w-5" /> },
+    { name: 'Exportation', path: '/export', icon: <DownloadIcon className="h-5 w-5" /> },
+  ];
 
   return (
-    <aside className="w-60 bg-gray-100 p-4 min-h-screen">
-      <nav className="flex flex-col">
-        <NavLink to="/dashboard" className={linkClasses}>Dashboard</NavLink>
-        <NavLink to="/users" className={linkClasses}>Utilisateurs</NavLink>
-        <NavLink to="/declarations" className={linkClasses}>Déclarations</NavLink>
-        <NavLink to="/payments" className={linkClasses}>Paiements</NavLink>
-        <NavLink to="/nif-validation" className={linkClasses}>Validation NIF</NavLink>
-        <NavLink to="/export-data" className={linkClasses}>Export</NavLink>
+    <aside className="w-64 bg-white shadow-md border-r h-full flex flex-col">
+      <div className="p-4 border-b text-center">
+        <h2 className="text-lg font-semibold text-gray-800">
+          In-Tax {user?.role ? `(${user.role})` : ''}
+        </h2>
+      </div>
+
+      <nav className="flex-1 p-4 space-y-2">
+        {menuItems.map((item) => (
+          <NavLink
+            key={item.name}
+            to={item.path}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-4 py-2 rounded-md text-gray-700 hover:bg-blue-100 hover:text-blue-700 transition ${
+                isActive ? 'bg-blue-500 text-white' : ''
+              }`
+            }
+          >
+            {item.icon}
+            <span>{item.name}</span>
+          </NavLink>
+        ))}
       </nav>
     </aside>
   );

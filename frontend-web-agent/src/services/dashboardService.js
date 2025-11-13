@@ -11,3 +11,11 @@ export const getSummary = async () => {
   const res = await axios.get(`${API_URL}/admin/summary`, authHeader());
   return res.data;
 };
+
+
+
+export default{
+  authHeader,
+  getDashboard,
+  getSummary
+}

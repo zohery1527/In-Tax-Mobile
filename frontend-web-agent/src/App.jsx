@@ -1,7 +1,11 @@
+import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
+import authService from './services/authService';
+
 import Header from './components/Header';
 import ProtectedRoute from './components/ProtectedRoute';
 import Sidebar from './components/Sidebar';
+
 import Dashboard from './pages/Dashboard';
 import Declarations from './pages/Declarations';
 import ExportData from './pages/ExportData';
@@ -11,40 +15,82 @@ import OTPVerification from './pages/OTPVerification';
 import Payments from './pages/Payments';
 import Users from './pages/Users';
 
-function App() {
+const App = () => {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const currentUser = authService.getCurrentUser();
+    setUser(currentUser);
+  }, []);
+
   return (
     <div className="flex h-screen bg-gray-100">
-      {/* Sidebar */}
-      <Sidebar />
-
+      {user && <Sidebar user={user} />}
       <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <Header />
-
-        {/* Contenu principal */}
-        <main className="flex-1 p-6 overflow-auto">
+        {user && <Header user={user} setUser={setUser} />}
+        <main className="p-6 overflow-auto flex-1">
           <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/otp" element={<OTPVerification />} />
+            {/* Routes publiques */}
+            <Route path="/login" element={<Login setUser={setUser} />} />
+            <Route path="/otp-verification" element={<OTPVerification setUser={setUser} />} />
 
             {/* Routes protégées */}
-            <Route element={<ProtectedRoute allowedRoles={['ADMIN', 'AGENT']} />}>
-              <Route path="/" element={<Navigate to="/dashboard" />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/users" element={<Users />} />
-              <Route path="/declarations" element={<Declarations />} />
-              <Route path="/payments" element={<Payments />} />
-              <Route path="/nif-validation" element={<NIFValidation />} />
-              <Route path="/export" element={<ExportData />} />
-            </Route>
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute user={user}>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/users"
+              element={
+                <ProtectedRoute user={user}>
+                  <Users />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/declarations"
+              element={
+                <ProtectedRoute user={user}>
+                  <Declarations />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/payments"
+              element={
+                <ProtectedRoute user={user}>
+                  <Payments />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/nif-validation"
+              element={
+                <ProtectedRoute user={user}>
+                  <NIFValidation />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/export"
+              element={
+                <ProtectedRoute user={user}>
+                  <ExportData />
+                </ProtectedRoute>
+              }
+            />
 
-            {/* Route fallback */}
-            <Route path="*" element={<div className="text-center text-red-500 text-xl">Page non trouvée</div>} />
+            {/* Redirection par défaut */}
+            <Route path="*" element={<Navigate to={user ? "/" : "/login"} replace />} />
           </Routes>
         </main>
       </div>
     </div>
   );
-}
+};
 
 export default App;

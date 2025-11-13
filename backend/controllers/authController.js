@@ -33,15 +33,26 @@ const authController = {
   },
 
   // CONNEXION
-  async login(req, res) {
+  // Fichier : authController.js (fonction login)
+ async login(req, res) {
+
     try {
+
       const { phoneNumber } = req.body;
 
+
+
       if (!phoneNumber) {
+
         return res.status(400).json({ success: false, message: 'Le numéro de téléphone est requis' });
+
       }
 
+
+
       const result = await authService.login(phoneNumber);
+
+
 
       res.json({
         success: true,
@@ -52,13 +63,18 @@ const authController = {
           otpCode: result.otpCode,
           debug: result.debugInfo
         }
-      });
-    } catch (error) {
-      console.error('Erreur Connexion:', error);
-      res.status(400).json({ success: false, message: error.message });
-    }
-  },
 
+      });
+
+    } catch (error) {
+
+      console.error('Erreur Connexion:', error);
+
+      res.status(400).json({ success: false, message: error.message });
+
+    }
+
+  },
   // VERIFICATION OTP
   async verifyOTP(req, res) {
     try {

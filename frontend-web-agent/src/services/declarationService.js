@@ -11,3 +11,9 @@ export const validateDeclaration = async (declarationId) => {
   const res = await axios.post(`${API_URL}/admin/declarations/${declarationId}/validate`, {}, authHeader());
   return res.data;
 };
+
+export default{
+  getPendingDeclarations,
+  validateDeclaration,
+  authHeader
+}

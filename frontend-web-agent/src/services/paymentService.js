@@ -11,3 +11,8 @@ export const confirmPaymentManual = async (paymentId) => {
   const res = await axios.post(`${API_URL}/admin/payments/${paymentId}/confirm`, {}, authHeader());
   return res.data;
 };
+
+export default{
+  getPayments,
+  confirmPaymentManual
+}

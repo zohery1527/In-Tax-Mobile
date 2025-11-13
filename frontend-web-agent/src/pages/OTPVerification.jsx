@@ -1,37 +1,63 @@
 import { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { verifyOTP } from '../services/authService';
+import { FaLock } from 'react-icons/fa';
+import { MdOutlinePin } from 'react-icons/md';
+import { useNavigate } from 'react-router-dom';
+import authService from '../services/authService';
 
-const OTPVerification = () => {
-  const [code, setCode] = useState('');
-  const [loading, setLoading] = useState(false);
+const OTPVerification = ({ setUser }) => {
+  const [otp, setOtp] = useState('');
   const navigate = useNavigate();
-  const location = useLocation();
-  const phone = new URLSearchParams(location.search).get('phone');
+  const userId = localStorage.getItem('tempUserId');
 
-  const handleVerify = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    if (!userId) return alert('ID utilisateur manquant');
+
     try {
-      const res = await verifyOTP(phone, code);
-      if(res.success){
+      const res = await authService.verifyOTP({ userId, otpCode: otp });
+      if (res.success) {
+        localStorage.setItem('user', JSON.stringify(res.data.user));
         localStorage.setItem('token', res.data.token);
-        navigate('/dashboard');
+        localStorage.removeItem('tempUserId');
+        setUser(res.data.user);
+        navigate('/');
       }
-    } catch (error) {
-      alert(error.response?.data?.message || 'Code OTP invalide');
+    } catch (err) {
+      console.error(err);
     }
-    setLoading(false);
   };
 
   return (
-    <div className="flex justify-center items-center h-screen bg-gray-100">
-      <form className="bg-white p-6 rounded shadow w-80" onSubmit={handleVerify}>
-        <h2 className="text-2xl font-bold mb-4">Vérification OTP</h2>
-        <input type="text" placeholder="Code OTP" value={code} onChange={e=>setCode(e.target.value)}
-          className="w-full p-2 border rounded mb-4" required />
-        <button type="submit" className="w-full bg-green-600 text-white p-2 rounded">{loading ? 'Vérification...' : 'Valider OTP'}</button>
-        <p className="mt-2 text-gray-500 text-sm">Numéro: {phone}</p>
+    <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-50 to-blue-100">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white p-8 rounded-2xl shadow-lg w-80 text-center"
+      >
+        <div className="flex justify-center mb-4">
+          <FaLock className="text-4xl text-blue-600" />
+        </div>
+        <h2 className="text-2xl font-bold text-gray-800 mb-2">Vérification OTP</h2>
+        <p className="text-gray-500 mb-6 text-sm">
+          Code envoyé à : <span className="font-semibold">{localStorage.getItem('phoneNumber')}</span>
+        </p>
+
+        <div className="flex items-center border rounded-lg mb-5 px-3">
+          <MdOutlinePin className="text-gray-400 text-xl mr-2" />
+          <input
+            type="text"
+            placeholder="Entrez le code OTP"
+            value={otp}
+            onChange={(e) => setOtp(e.target.value)}
+            className="w-full p-2 outline-none text-gray-700"
+          />
+        </div>
+
+        <button
+          type="submit"
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg transition duration-300"
+        >
+          Vérifier
+        </button>
       </form>
     </div>
   );

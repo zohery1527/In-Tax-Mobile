@@ -15,3 +15,9 @@ export const validateNIF = async (userId, action, reason='') => {
   const res = await axios.post(`${API_URL}/admin/nif/validate`, { userId, action, reason }, authHeader());
   return res.data;
 };
+
+export default {
+    authHeader,
+    getUsers,
+    validateNIF
+};
