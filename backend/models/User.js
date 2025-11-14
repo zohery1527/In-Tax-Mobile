@@ -10,6 +10,7 @@ module.exports=(sequelize,DataTypes)=>{
             this.belongsTo(models.Zone,{foreignKey:'zoneId',as:'zone'});
             this.hasMany(models.NIFHistory,{foreignKey:'userId',as:'nifHistories'});
             this.hasMany(models.PendingOTP,{foreignKey:'userId',as:'pendingOTPs'});
+            this.hasMany(models.Notification,{foreignKey:'userId',as:'notifications'});
         }
     }
 
