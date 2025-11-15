@@ -32,6 +32,22 @@ const authController = {
     }
   },
 
+
+
+  //recuperation zone
+  async getAllzone(req,res){
+      try {
+        const zones= await Zone.findAll();
+        return{
+          success:true,
+          data:{
+            zones
+          }
+        }
+      } catch (error) {
+        console.error(error);
+      }
+  },
   // CONNEXION
   // Fichier : authController.js (fonction login)
  async login(req, res) {

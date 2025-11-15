@@ -3,6 +3,11 @@ const cors = require('cors');
 const helmet = require('helmet');
 const cron = require('node-cron'); // 💡 NÉCESSAIRE pour la planification
 require('dotenv').config();
+const Routeauth=require('./routes/auth');
+const RouteAdmin=require('./routes/admin');
+
+
+
 
 const app = express();
 const { sequelize } = require('./models');
@@ -17,8 +22,8 @@ app.use(helmet());
 app.use(express.json());
 
 // ✅ Routes principales
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/admin', require('./routes/admin'));
+app.use('/api/auth',Routeauth);
+app.use('/api/admin',RouteAdmin);
 app.use('/api/declarations', require('./routes/declarations'));
 app.use('/api/payments', require('./routes/payments'));
 app.use('/api/system', require('./routes/system'));
@@ -34,7 +39,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ✅ Page d'accueil de l'API
+✅ Page d'accueil de l'API
 app.get('/', (req, res) => {
   res.json({
     success: true,

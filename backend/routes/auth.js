@@ -3,6 +3,7 @@ const router = express.Router();
 const authController = require('../controllers/authController');
 const { authenticateToken } = require('../middleware/auth');
 
+router.get('/zones',authController.getAllzone);
 router.post('/register', authController.register);
 router.post('/login', authController.login);
 router.post('/verify-otp', authController.verifyOTP);

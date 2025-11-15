@@ -166,114 +166,139 @@ const declarationController = {
     }
   },
 
-  async updateDeclaration(req, res) {
-    try {
-      const { id } = req.params;
-      const userId = req.user.id;
-      const { amount, description } = req.body;
 
-      const declaration = await Declaration.findOne({
-        where: { id, userId, status: 'PENDING' }
-      });
+async updateDeclaration(req, res) {
+    try {
+        const { id } = req.params;
+        const userId = req.user.id;
+        const { amount, description } = req.body;
 
-      if (!declaration) {
-        return res.status(404).json({
-          success: false,
-          message: "Déclaration non trouvée ou non modifiable"
-        });
-      }
+        const declaration = await Declaration.findOne({
+            where: { id, userId },
+            include: [{
+                model: Payment,
+                as: 'payment',
+                attributes: ['id', 'status']
+            }]
+        });
 
-      if (amount) {
-        declaration.amount = parseFloat(amount);
-        declaration.taxAmount = parseFloat((amount * 0.02).toFixed(2));
-      }
+        if (!declaration) {
+            return res.status(404).json({
+                success: false,
+                message: "Déclaration non trouvée"
+            });
+        }
 
-      if (description !== undefined) {
-        declaration.description = description;
-      }
+        // BLOQUER si déclaration payée
+        if (declaration.status === 'PAID') {
+            return res.status(400).json({
+                success: false,
+                message: "Impossible de modifier une déclaration déjà payée"
+            });
+        }
 
-      await declaration.save();
+        // BLOQUER si paiement en cours
+        if (declaration.payment && declaration.payment.status === 'COMPLETED') {
+            return res.status(400).json({
+                success: false,
+                message: "Impossible de modifier une déclaration avec un paiement complété"
+            });
+        }
 
-      res.json({
-        success: true,
-        message: "Déclaration mise à jour",
-        data: { declaration }
-      });
-    } catch (error) {
-      console.error("Erreur mise à jour déclaration:", error);
-      res.status(500).json({
-        success: false,
-        message: error.message
-      });
-    }
-  },
+        if (amount) {
+            declaration.amount = parseFloat(amount);
+            declaration.taxAmount = parseFloat((amount * 0.02).toFixed(2));
+        }
 
-  async deleteDeclaration(req, res) {
-    try {
-      const { id } = req.params;
-      const userId = req.user.id;
+        if (description !== undefined) {
+            declaration.description = description;
+        }
 
-      const declaration = await Declaration.findOne({
-        where: { id, userId },
-        include: [{
-          model: Payment,
-          as: 'payment',
-          attributes: ['id', 'status']
-        }]
-      });
+        await declaration.save();
 
-      if (!declaration) {
-        return res.status(404).json({
-          success: false,
-          message: "Déclaration non trouvée"
-        });
-      }
+        res.json({
+            success: true,
+            message: "Déclaration mise à jour",
+            data: { declaration }
+        });
 
-      if (declaration.payment && declaration.payment.status !== 'FAILED') {
-        return res.status(400).json({
-          success: false,
-          message: "Impossible de supprimer une déclaration avec un paiement en cours ou complété"
-        });
-      }
+    } catch (error) {
+        console.error("Erreur mise à jour déclaration:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+},
+async deleteDeclaration(req, res) {
+    try {
+        const { id } = req.params;
+        const userId = req.user.id;
 
-      if (declaration.status === 'PAID') {
-        return res.status(400).json({
-          success: false,
-          message: "Impossible de supprimer une déclaration déjà payée"
-        });
-      }
+        const declaration = await Declaration.findOne({
+            where: { id, userId },
+            include: [{
+                model: Payment,
+                as: 'payment',
+                attributes: ['id', 'status']
+            }]
+        });
 
-      const period = declaration.period;
+        if (!declaration) {
+            return res.status(404).json({
+                success: false,
+                message: "Déclaration non trouvée"
+            });
+        }
 
-      await declaration.destroy();
+        // BLOQUER si déclaration payée
+        if (declaration.status === 'PAID') {
+            return res.status(400).json({
+                success: false,
+                message: "Impossible de supprimer une déclaration déjà payée"
+            });
+        }
 
-      try {
-        await smsService.sendDeclarationDeleted(
-          req.user.phoneNumber,
-          period
-        );
-        console.log('✅ SMS suppression déclaration envoyé');
-      } catch (smsError) {
-        console.error('❌ Erreur envoi SMS suppression:', smsError);
-      }
+        // BLOQUER si paiement en cours ou complété
+        if (declaration.payment && declaration.payment.status !== 'FAILED') {
+            return res.status(400).json({
+                success: false,
+                message: "Impossible de supprimer une déclaration avec un paiement en cours ou complété"
+            });
+        }
 
-      res.json({
-        success: true,
-        message: "Déclaration supprimée avec succès",
-        data: {
-          id,
-          period,
-          deletedAt: new Date().toISOString()
-        }
-      });
-    } catch (error) {
-      console.error("Erreur suppression déclaration:", error);
-      res.status(500).json({
-        success: false,
-        message: error.message
-      });
-    }
-  },
+        const period = declaration.period;
+        await declaration.destroy();
+
+        // SMS de confirmation de suppression
+        try {
+            await smsService.sendDeclarationDeleted(
+                req.user.phoneNumber,
+                period
+            );
+            console.log(`SMS suppression déclaration envoyé à ${req.user.phoneNumber}`);
+        } catch (error) {
+            console.error('Erreur envoi SMS suppression:', error);
+        }
+
+        res.json({
+            success: true,
+            message: "Déclaration supprimée avec succès",
+            data: {
+                id,
+                period,
+                deletedAt: new Date().toISOString()
+            }
+        });
+
+    } catch (error) {
+        console.error("Erreur suppression déclaration:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+}, 
 
   async getDeclarationsStatus(req, res) {
     try {
