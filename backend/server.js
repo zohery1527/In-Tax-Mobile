@@ -39,7 +39,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-✅ Page d'accueil de l'API
+// ✅ Page d'accueil de l'API
 app.get('/', (req, res) => {
   res.json({
     success: true,
