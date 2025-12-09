@@ -1,5 +1,7 @@
 // controllers/admin/adminDeclarationController.js
-const { Declaration, User, Zone, Payment, sequelize } = require('../../models');
+// CORRIGEZ LES IMPORTS :
+const { Declaration, User, Zone, Payment, sequelize, Notification } = require('../../models');
+//                                                     ↑ AJOUTEZ ICI
 
 const adminDeclarationController = {
 
@@ -115,6 +117,7 @@ const adminDeclarationController = {
     try {
       const { declarationId } = req.params;
       const { action, reason } = req.body; // 'APPROVE' or 'REJECT'
+      const admin = req.admin; // Ajout de cette ligne
 
       const declaration = await Declaration.findByPk(declarationId, {
         include: [{
@@ -130,7 +133,7 @@ const adminDeclarationController = {
         });
       }
 
-      if (!(await hasAccessToDeclaration(req.admin, declaration))) {
+      if (!(await hasAccessToDeclaration(admin, declaration))) {
         return res.status(403).json({
           success: false,
           message: 'Accès non autorisé à cette déclaration'
@@ -141,11 +144,11 @@ const adminDeclarationController = {
         await declaration.update({ 
           status: 'VALIDATED',
           validatedAt: new Date(),
-          validatedBy: req.admin.id
+          validatedBy: admin.id // Utilisez admin.id
         });
 
-        // Notification
-        await req.app.get('models').Notification.create({
+        // CORRECTION : Utilisez Notification importé directement
+        await Notification.create({
           userId: declaration.userId,
           type: 'DECLARATION_SUBMITTED',
           title: 'Famaranana voamarina',
@@ -165,11 +168,11 @@ const adminDeclarationController = {
           status: 'REJECTED',
           rejectionReason: reason,
           rejectedAt: new Date(),
-          rejectedBy: req.admin.id
+          rejectedBy: admin.id // Utilisez admin.id
         });
 
-        // Notification
-        await req.app.get('models').Notification.create({
+        // CORRECTION : Utilisez Notification importé directement
+        await Notification.create({
           userId: declaration.userId,
           type: 'SYSTEM_ALERT',
           title: 'Famaranana tsy voamarina',
@@ -197,6 +200,7 @@ const adminDeclarationController = {
 // Helper functions
 function buildDeclarationWhereClause(query, admin) {
   const whereClause = {};
+  const { Op } = require('sequelize'); // Ajoutez cette ligne
 
   // Filtres de base
   if (query.status) whereClause.status = query.status;
@@ -206,7 +210,7 @@ function buildDeclarationWhereClause(query, admin) {
   // Filtre zone
   if (admin.scope !== 'GLOBAL') {
     whereClause['$user.zoneId$'] = { 
-      [sequelize.Op.in]: admin.zoneIds || [] 
+      [Op.in]: admin.zoneIds || [] 
     };
   }
 
