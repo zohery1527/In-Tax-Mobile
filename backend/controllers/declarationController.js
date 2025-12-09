@@ -123,6 +123,66 @@ const declarationController = {
       });
     }
   },
+// controllers/declarationController.js - AJOUTER
+async getStatsSummary(req, res) {
+  try {
+    const userId = req.user.id;
+    
+    // Statistiques globales
+    const totalDeclarations = await Declaration.count({ where: { userId } });
+    const totalTaxAmount = await Declaration.sum('taxAmount', { where: { userId } });
+    const totalPaidAmount = await Declaration.sum('paidAmount', { where: { userId } });
+    
+    // Statistiques par statut
+    const statusStats = await Declaration.findAll({
+      where: { userId },
+      attributes: [
+        'status',
+        [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
+        [sequelize.fn('SUM', sequelize.col('taxAmount')), 'totalTax'],
+        [sequelize.fn('SUM', sequelize.col('paidAmount')), 'totalPaid']
+      ],
+      group: ['status'],
+      raw: true
+    });
+    
+    // Dernière déclaration
+    const lastDeclaration = await Declaration.findOne({
+      where: { userId },
+      order: [['createdAt', 'DESC']],
+      attributes: ['id', 'period', 'amount', 'status', 'createdAt']
+    });
+    
+    // Prochaine échéance (mois suivant)
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const nextPeriod = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+    
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalDeclarations,
+          totalTaxAmount: totalTaxAmount || 0,
+          totalPaidAmount: totalPaidAmount || 0,
+          pendingAmount: (totalTaxAmount || 0) - (totalPaidAmount || 0)
+        },
+        byStatus: statusStats,
+        lastDeclaration,
+        nextPeriod,
+        currentPeriod: `${currentYear}-${String(currentMonth).padStart(2, '0')}`
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur statistiques:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors du calcul des statistiques'
+    });
+  }
+},
 
   // FONCTION CORRIGÉE ICI
   async getDeclaration(req, res) {

@@ -1,76 +1,106 @@
-import { ArrowRightIcon, PhoneIcon } from '@heroicons/react/outline';
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import authService from '../services/authService';
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import Swal from 'sweetalert2'
+import { useAuth } from '../hooks/useAuth'
 
-const Login = ({ setUser }) => {
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
+const Login = () => {
+  const [credentials, setCredentials] = useState({
+    email: '',
+    password: ''
+  })
+  const [loading, setLoading] = useState(false)
+  const { login } = useAuth()
+  const navigate = useNavigate()
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!phoneNumber.trim()) return;
-    setLoading(true);
-    try {
-      const res = await authService.login({ phoneNumber });
-      if (res.success) {
-        localStorage.setItem('tempUserId', res.data.userId);
-        localStorage.setItem('phoneNumber', phoneNumber);
-        navigate('/otp-verification');
-      } else {
-        alert(res.message || 'Erreur de connexion.');
-      }
-    } catch (err) {
-      console.error('Erreur login:', err);
-      alert('Une erreur est survenue, veuillez réessayer.');
-    } finally {
-      setLoading(false);
+    e.preventDefault()
+    setLoading(true)
+
+    const result = await login(credentials)
+    
+    if (result.success) {
+      Swal.fire({
+        icon: 'success',
+        title: 'Connexion réussie!',
+        showConfirmButton: false,
+        timer: 1500
+      })
+      navigate('/admin')
+    } else {
+      Swal.fire({
+        icon: 'error',
+        title: 'Erreur',
+        text: result.message
+      })
     }
-  };
+    
+    setLoading(false)
+  }
 
   return (
-    <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-100 to-blue-200">
-      <div className="bg-white shadow-lg rounded-2xl p-8 w-96">
-        <h2 className="text-2xl font-bold text-center text-blue-700 mb-6">
-          Connexion à In-Tax
-        </h2>
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="relative">
-            <PhoneIcon className="h-5 w-5 absolute left-3 top-3 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Numéro de téléphone"
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              className="w-full pl-10 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-            />
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-bold text-gray-900">
+              IN-TAX Admin
+            </h2>
+            <p className="mt-2 text-gray-600">
+              Plateforme d'administration
+            </p>
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className={`w-full flex items-center justify-center gap-2 p-2 rounded-lg text-white font-medium transition 
-              ${loading ? 'bg-blue-300' : 'bg-blue-600 hover:bg-blue-700'}`}
-          >
-            {loading ? (
-              <span className="animate-pulse">Envoi...</span>
-            ) : (
-              <>
-                Envoyer OTP
-                <ArrowRightIcon className="h-5 w-5" />
-              </>
-            )}
-          </button>
-        </form>
+          <form className="space-y-6" onSubmit={handleSubmit}>
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                Email
+              </label>
+              <div className="mt-1">
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={credentials.email}
+                  onChange={(e) => setCredentials({...credentials, email: e.target.value})}
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </div>
 
-        <p className="text-center text-sm text-gray-500 mt-6">
-          Entrez votre numéro pour recevoir le code OTP.
-        </p>
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                Mot de passe
+              </label>
+              <div className="mt-1">
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={credentials.password}
+                  onChange={(e) => setCredentials({...credentials, password: e.target.value})}
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+              >
+                {loading ? 'Connexion...' : 'Se connecter'}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default Login;
+export default Login

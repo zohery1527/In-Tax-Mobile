@@ -1,98 +1,92 @@
-import { CheckIcon, XIcon } from '@heroicons/react/outline';
-import { useEffect, useState } from 'react';
-import Table from '../components/Table';
-import { getUsers, validateNIF } from '../services/userService';
+import { useEffect, useState } from 'react'
+import Swal from 'sweetalert2'
+import ExportButton from '../components/Common/ExportButton'
+import UserFilters from '../components/Users/UserFilters'
+import UserTable from '../components/Users/UserTable'
+import { usersAPI } from '../services/api'
 
 const Users = () => {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchUsers = async () => {
-    setLoading(true);
-    const res = await getUsers();
-    if (res.success) setUsers(res.data.users);
-    setLoading(false);
-  };
-
-  const handleValidateNIF = async (userId, action) => {
-    const reason = action === 'REJECTED' ? prompt('Motif du rejet') : '';
-    const res = await validateNIF(userId, action, reason);
-    if (res.success) fetchUsers();
-  };
+  const [users, setUsers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [pagination, setPagination] = useState({})
+  const [filters, setFilters] = useState({
+    page: 1,
+    limit: 20,
+    search: '',
+    status: '',
+    activityType: '',
+    zoneId: ''
+  })
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    loadUsers()
+  }, [filters])
 
-  const columns = [
-    { key: 'firstName', label: 'Prénom' },
-    { key: 'lastName', label: 'Nom' },
-    { key: 'phoneNumber', label: 'Téléphone' },
-    { key: 'nifNumber', label: 'NIF' },
-    {
-      key: 'nifStatus',
-      label: 'Statut NIF',
-      render: (row) => (
-        <span
-          className={`px-3 py-1 rounded-full text-sm font-medium ${
-            row.nifStatus === 'VALIDATED'
-              ? 'bg-green-100 text-green-700'
-              : row.nifStatus === 'REJECTED'
-              ? 'bg-red-100 text-red-700'
-              : 'bg-yellow-100 text-yellow-700'
-          }`}
-        >
-          {row.nifStatus}
-        </span>
-      ),
-    },
-    { key: 'activityType', label: 'Activité' },
-    { key: 'zone.name', label: 'Région' },
-    {
-      key: 'createdAt',
-      label: 'Date inscription',
-      render: (row) =>
-        new Date(row.createdAt).toLocaleDateString('fr-FR'),
-    },
-    {
-      key: 'actions',
-      label: 'Actions',
-      render: (row) => (
-        <div className="flex gap-2">
-          <button
-            onClick={() => handleValidateNIF(row.id, 'VALIDATED')}
-            className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-md text-sm transition"
-          >
-            <CheckIcon className="h-4 w-4" /> Valider
-          </button>
-          <button
-            onClick={() => handleValidateNIF(row.id, 'REJECTED')}
-            className="flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-md text-sm transition"
-          >
-            <XIcon className="h-4 w-4" /> Rejeter
-          </button>
-        </div>
-      ),
-    },
-  ];
+  const loadUsers = async () => {
+    try {
+      setLoading(true)
+      const response = await usersAPI.getUsers(filters)
+      setUsers(response.data.data.users)
+      setPagination(response.data.data.pagination)
+    } catch (error) {
+      Swal.fire('Erreur', 'Impossible de charger les utilisateurs', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleUpdateStatus = async (userId, isActive) => {
+    const result = await Swal.fire({
+      title: 'Confirmer',
+      text: `Êtes-vous sûr de vouloir ${isActive ? 'activer' : 'désactiver'} cet utilisateur ?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Confirmer',
+      cancelButtonText: 'Annuler'
+    })
+
+    if (result.isConfirmed) {
+      try {
+        await usersAPI.updateUserStatus(userId, { isActive })
+        Swal.fire('Succès', `Utilisateur ${isActive ? 'activé' : 'désactivé'}`, 'success')
+        loadUsers()
+      } catch (error) {
+        Swal.fire('Erreur', 'Action échouée', 'error')
+      }
+    }
+  }
+
+  const handlePageChange = (newPage) => {
+    setFilters(prev => ({ ...prev, page: newPage }))
+  }
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-2xl font-bold text-gray-800 mb-6">
-          Liste des utilisateurs
-        </h1>
-
-        <div className="bg-white shadow-md rounded-lg p-4">
-          {loading ? (
-            <div className="text-center py-10 text-gray-500">Chargement...</div>
-          ) : (
-            <Table data={users} columns={columns} />
-          )}
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Gestion des Utilisateurs</h1>
+          <p className="text-gray-600">Liste et gestion des utilisateurs de la plateforme</p>
         </div>
+        <ExportButton
+          dataType="users"
+          filters={filters}
+          label="Exporter les utilisateurs"
+        />
       </div>
-    </div>
-  );
-};
 
-export default Users;
+      {/* Filters */}
+      <UserFilters filters={filters} setFilters={setFilters} />
+
+      {/* Users Table */}
+      <UserTable
+        users={users}
+        loading={loading}
+        pagination={pagination}
+        onUpdateStatus={handleUpdateStatus}
+        onPageChange={handlePageChange}
+      />
+    </div>
+  )
+}
+
+export default Users

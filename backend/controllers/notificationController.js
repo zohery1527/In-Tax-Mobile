@@ -1,100 +1,131 @@
 const NotificationService = require('../services/notificationService');
 
 class NotificationController {
-  
-  // Récupérer les notifications de l'utilisateur
-  async getUserNotifications(req, res) {
-    try {
-      const userId = req.user.id;
-      // S'assurer que limit est bien un nombre ou null
-      const { unreadOnly, limit } = req.query;
+  
+  // Récupérer les notifications de l'utilisateur
+  async getUserNotifications(req, res) {
+    try {
+      const userId = req.user.id;
+      const { unreadOnly, limit } = req.query;
 
-      const notifications = await NotificationService.getUserNotifications(userId, {
-        unreadOnly: unreadOnly === 'true',
-        limit: limit ? parseInt(limit) : 50
-      });
+      console.log(`📨 Récupération notifications pour user: ${userId}`);
 
-      res.json({
-        success: true,
-        data: {
-          notifications,
-          // Calcul direct du nombre non lu pour la réponse
-          unreadCount: notifications.filter(n => !n.isRead).length 
-        }
-      });
+      const result = await NotificationService.getUserNotifications(userId, {
+        unreadOnly: unreadOnly === 'true',
+        limit: limit ? parseInt(limit) : 20
+      });
 
-    } catch (error) {
-      console.error('Erreur récupération notifications:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Erreur lors de la récupération des notifications'
-      });
-    }
-  }
+      res.json({
+        success: true,
+        data: result
+      });
 
-  // Marquer une notification comme lue
-  async markAsRead(req, res) {
-    try {
-      const { notificationId } = req.params;
-      const userId = req.user.id;
+    } catch (error) {
+      console.error('❌ Erreur récupération notifications:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Tsy nahomby ny fandraisana ny fampahatsiahivana',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
 
-      const notification = await NotificationService.markAsRead(notificationId, userId);
+  // Marquer une notification comme lue
+  async markAsRead(req, res) {
+    try {
+      const { notificationId } = req.params;
+      const userId = req.user.id;
 
-      res.json({
-        success: true,
-        message: 'Notification marquée comme lue',
-        data: { notification }
-      });
+      console.log(`📌 Marquage notification ${notificationId} comme lue`);
 
-    } catch (error) {
-      console.error('Erreur marquage notification:', error);
-      // Le 400 est maintenu si le service lève une erreur de "non trouvé"
-      res.status(400).json({
-        success: false,
-        message: error.message
-      });
-    }
-  }
+      const notification = await NotificationService.markAsRead(notificationId, userId);
 
-  // Marquer toutes les notifications comme lues
-  async markAllAsRead(req, res) {
-    try {
-      const userId = req.user.id;
+      res.json({
+        success: true,
+        message: 'Voamarika ho vakina ny fampahatsiahivana',
+        data: { notification }
+      });
 
-      await NotificationService.markAllAsRead(userId);
+    } catch (error) {
+      console.error('❌ Erreur marquage notification:', error);
+      
+      const status = error.message.includes('Tsy hita') ? 404 : 500;
+      res.status(status).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
 
-      res.json({
-        success: true,
-        message: 'Toutes les notifications marquées comme lues'
-      });
+  // Marquer toutes les notifications comme lues
+  async markAllAsRead(req, res) {
+    try {
+      const userId = req.user.id;
 
-    } catch (error) {
-      console.error('Erreur marquage toutes notifications:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Erreur lors du marquage des notifications'
-      });
-    }
-  }
+      console.log(`📌 Marquage toutes notifications comme lues`);
 
-  // Générer les rappels (pour admin ou cron job)
-  async generateReminders(req, res) {
-    try {
-      await NotificationService.generateAutomaticReminders();
+      const updatedCount = await NotificationService.markAllAsRead(userId);
 
-      res.json({
-        success: true,
-        message: 'Rappels automatiques générés avec succès'
-      });
+      res.json({
+        success: true,
+        message: `Voamarika ho vakina ny fampahatsiahivana rehetra (${updatedCount})`,
+        data: { updatedCount }
+      });
 
-    } catch (error) {
-      console.error('Erreur génération rappels:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Erreur lors de la génération des rappels'
-      });
-    }
-  }
+    } catch (error) {
+      console.error('❌ Erreur marquage toutes notifications:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Tsy nahomby ny marika fampahatsiahivana'
+      });
+    }
+  }
+
+  // Générer les rappels (pour admin)
+  async generateReminders(req, res) {
+    try {
+      console.log('🔄 Début génération rappels automatiques...');
+
+      // Exécuter toutes les tâches
+      const result = await require('../jobs/notificationJobs').runAllTasks();
+
+      res.json({
+        success: true,
+        message: 'Nahomby ny famokarana fanamarihana',
+        data: result
+      });
+
+    } catch (error) {
+      console.error('❌ Erreur génération rappels:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Tsy nahomby ny famokarana fanamarihana',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  // Nettoyer les notifications expirées (admin)
+  async cleanupExpired(req, res) {
+    try {
+      console.log('🧹 Nettoyage notifications expirées...');
+
+      const cleanedCount = await NotificationService.cleanupExpiredNotifications();
+
+      res.json({
+        success: true,
+        message: `Vita ny fanadiovana (${cleanedCount} fampahatsiahivana)`,
+        data: { cleanedCount }
+      });
+
+    } catch (error) {
+      console.error('❌ Erreur nettoyage notifications:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Tsy nahomby ny fanadiovana'
+      });
+    }
+  }
 }
 
 module.exports = new NotificationController();

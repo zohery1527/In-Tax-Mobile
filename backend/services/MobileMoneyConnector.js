@@ -1,54 +1,61 @@
+'use strict';
 const RealPaymentStrategy = require('./paymentStrategies/RealPaymentStrategy');
 const SimulationPaymentStrategy = require('./paymentStrategies/SimulationPaymentStrategy');
 
 class MobileMoneyConnector {
-  constructor(provider) {
-    this.provider = provider;
-    this.mode = this.detectMode();
+  constructor(provider, mode = 'REAL') {
+    // Mapping standardisé pour correspondre au modèle TransactionLog
+    const mapping = { 
+      orange: 'ORANGE_MONEY', 
+      mvola: 'MVOLA', 
+      airtel: 'AIRTEL_MONEY' 
+    };
+    
+    // Convertir le provider entrant en format standard
+    const normalizedProvider = mapping[provider.toLowerCase()] || 'ORANGE_MONEY';
+    
+    this.provider = normalizedProvider; // Format: ORANGE_MONEY, MVOLA, AIRTEL_MONEY
+    this.originalProvider = provider.toLowerCase(); // Format: orange, mvola, airtel
+    this.mode = mode;
+    
+    // Passer le provider standardisé aux stratégies
+    this.strategy = mode === 'SIMULATION' 
+      ? new SimulationPaymentStrategy(normalizedProvider)
+      : new RealPaymentStrategy(normalizedProvider);
   }
 
-  detectMode() {
-    if (process.env.ORANGE_MONEY_API_KEY && process.env.NODE_ENV === 'production') {
-      return 'PRODUCTION';
-    } else {
-      return 'SIMULATION';
+  async initiatePayment({ amount, phoneNumber, declarationId, userId }) {
+    try {
+      const result = await this.strategy.initiate({ 
+        amount, 
+        phoneNumber, 
+        declarationId, 
+        userId 
+      });
+      return result;
+    } catch (err) {
+      console.error('❌ MobileMoneyConnector initiatePayment error:', err);
+      return { 
+        success: false, 
+        message: err.message || 'Erreur initiation paiement', 
+        transactionId: null, 
+        status: 'FAILED' 
+      };
     }
-  }
-
-  async initiatePayment(paymentData) {
-    const strategy = this.getPaymentStrategy();
-    return await strategy.initiate(paymentData);
   }
 
   async confirmPayment(transactionId) {
-    const strategy = this.getPaymentStrategy();
-    return await strategy.confirm(transactionId);
-  }
-
-  getPaymentStrategy() {
-    switch (this.mode) {
-      case 'PRODUCTION':
-        return new RealPaymentStrategy(this.provider);
-      default:
-        return new SimulationPaymentStrategy(this.provider);
+    try {
+      const result = await this.strategy.confirm({ transactionId });
+      return result;
+    } catch (err) {
+      console.error('❌ MobileMoneyConnector confirmPayment error:', err);
+      return { 
+        success: false, 
+        message: err.message || 'Erreur confirmation paiement', 
+        status: 'FAILED' 
+      };
     }
-  }
-
-  getProductionReadiness() {
-    return {
-      status: this.mode === 'PRODUCTION' ? 'LIVE' : 'READY',
-      provider: this.provider,
-      mode: this.mode,
-      missing: this.getMissingConfigurations(),
-      estimatedIntegrationTime: '2-3 jours'
-    };
-  }
-
-  getMissingConfigurations() {
-    const missing = [];
-    if (!process.env.ORANGE_MONEY_API_KEY) missing.push('ORANGE_MONEY_API_KEY');
-    if (!process.env.MVOLA_CONSUMER_KEY) missing.push('MVOLA_CONSUMER_KEY');
-    return missing;
   }
 }
 

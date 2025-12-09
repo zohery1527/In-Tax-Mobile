@@ -1,4 +1,5 @@
 'use strict';
+
 const { Model, DataTypes } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
@@ -19,33 +20,66 @@ module.exports = (sequelize, DataTypes) => {
     },
     userId: {
       type: DataTypes.UUID,
-      allowNull: false
+      allowNull: false,
+      references: {
+        model: 'Users',
+        key: 'id'
+      }
     },
     phoneNumber: {
       type: DataTypes.STRING(20),
       allowNull: false
     },
-    code: {
+    otpCode: {
       type: DataTypes.STRING(6),
       allowNull: false
     },
+    otpHash: {
+      type: DataTypes.STRING(255),
+      allowNull: false
+    },
     purpose: {
-      type: DataTypes.ENUM('LOGIN', 'VERIFICATION', 'TRANSACTION'),
+      type: DataTypes.ENUM('LOGIN', 'REGISTRATION', 'PASSWORD_RESET', 'PHONE_VERIFICATION'),
       defaultValue: 'LOGIN'
+    },
+    attempts: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0
     },
     expiresAt: {
       type: DataTypes.DATE,
       allowNull: false
     },
-    used: {
+    isUsed: {
       type: DataTypes.BOOLEAN,
       defaultValue: false
+    },
+    metadata: {
+      type: DataTypes.JSON,
+      allowNull: true
     }
   }, {
     sequelize,
     modelName: 'PendingOTP',
     tableName: 'PendingOTPs',
-    timestamps: true
+    timestamps: true,
+    indexes: [
+      {
+        fields: ['userId']
+      },
+      {
+        fields: ['phoneNumber']
+      },
+      {
+        fields: ['expiresAt']
+      },
+      {
+        fields: ['isUsed']
+      },
+      {
+        fields: ['purpose']
+      }
+    ]
   });
 
   return PendingOTP;

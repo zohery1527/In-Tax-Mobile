@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 const db = require('../models');
 const smsService = require('./SMSService');
 const NIFService = require('./NIFService');
@@ -33,14 +34,16 @@ const authService = {
       role: 'VENDEUR',
       isActive: true
     });
-// 0342015272
-    // Générer l'OTP
+
+    // Générer l'OTP avec hash
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = await bcrypt.hash(otpCode, 10);
 
     await PendingOTP.create({
       userId: user.id,
       phoneNumber,
-      code: otpCode,
+      otpCode: otpCode,
+      otpHash: otpHash,
       purpose: 'LOGIN',
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       used: false
@@ -79,150 +82,300 @@ const authService = {
   },
 
   // Connexion
-async login(phoneNumber) {
-  console.log('🔐 TENTATIVE CONNEXION avec:', phoneNumber);
+  async login(phoneNumber) {
+    console.log('🔐 TENTATIVE CONNEXION avec:', phoneNumber);
 
-  // 🎯 CONVERSION MULTI-DIRECTIONNELLE
-  let searchNumbers = [phoneNumber.trim().replace(/[^\d+]/g, '')];
-  
-  const originalNumber = searchNumbers[0];
-  
-  // Conversion: 0386573293 → +261386573293 (pour les admins)
-  if (originalNumber.startsWith('0') && originalNumber.length === 10) {
-    searchNumbers.push('+261' + originalNumber.substring(1));
-    searchNumbers.push('261' + originalNumber.substring(1));
-  }
-  // Conversion: +261386573293 → 0386573293 (pour les vendeurs)  
-  else if (originalNumber.startsWith('+261') && originalNumber.length === 13) {
-    searchNumbers.push('0' + originalNumber.substring(4));
-    searchNumbers.push('261' + originalNumber.substring(1));
-  }
-  // Conversion: 261386573293 → 0386573293
-  else if (originalNumber.startsWith('261') && originalNumber.length === 12) {
-    searchNumbers.push('0' + originalNumber.substring(3));
-    searchNumbers.push('+' + originalNumber);
-  }
-
-  // Supprimer les doublons
-  searchNumbers = [...new Set(searchNumbers)];
-  
-  console.log('🔍 FORMATS DE RECHERCHE:', searchNumbers);
-
-  let user = null;
-  
-  // Essayer chaque format
-  for (const searchNumber of searchNumbers) {
-    user = await User.findOne({
-      where: { 
-        phoneNumber: searchNumber,
-        isActive: true 
-      },
-      include: [{ model: Zone, as: 'zone' }]
-    });
+    // 🎯 CONVERSION MULTI-DIRECTIONNELLE
+    let searchNumbers = [phoneNumber.trim().replace(/[^\d+]/g, '')];
     
-    if (user) {
-      console.log(`✅ UTILISATEUR TROUVÉ avec format: "${searchNumber}"`);
-      console.log(`   Détails: ${user.firstName} ${user.lastName} (${user.phoneNumber})`);
-      break;
+    const originalNumber = searchNumbers[0];
+    
+    // Conversion: 0386573293 → +261386573293 (pour les admins)
+    if (originalNumber.startsWith('0') && originalNumber.length === 10) {
+      searchNumbers.push('+261' + originalNumber.substring(1));
+      searchNumbers.push('261' + originalNumber.substring(1));
     }
-  }
+    // Conversion: +261386573293 → 0386573293 (pour les vendeurs)  
+    else if (originalNumber.startsWith('+261') && originalNumber.length === 13) {
+      searchNumbers.push('0' + originalNumber.substring(4));
+      searchNumbers.push('261' + originalNumber.substring(1));
+    }
+    // Conversion: 261386573293 → 0386573293
+    else if (originalNumber.startsWith('261') && originalNumber.length === 12) {
+      searchNumbers.push('0' + originalNumber.substring(3));
+      searchNumbers.push('+' + originalNumber);
+    }
 
-  if (!user) {
-    console.log('❌ AUCUN UTILISATEUR TROUVÉ avec formats:', searchNumbers);
+    // Supprimer les doublons
+    searchNumbers = [...new Set(searchNumbers)];
     
-    // Debug: afficher tous les users
-    const allUsers = await User.findAll({
-      attributes: ['phoneNumber', 'firstName', 'lastName', 'isActive'],
-      limit: 10
+    console.log('🔍 FORMATS DE RECHERCHE:', searchNumbers);
+
+    let user = null;
+    
+    // Essayer chaque format
+    for (const searchNumber of searchNumbers) {
+      user = await User.findOne({
+        where: { 
+          phoneNumber: searchNumber,
+          isActive: true 
+        },
+        include: [{ model: Zone, as: 'zone' }]
+      });
+      
+      if (user) {
+        console.log(`✅ UTILISATEUR TROUVÉ avec format: "${searchNumber}"`);
+        console.log(`   Détails: ${user.firstName} ${user.lastName} (${user.phoneNumber})`);
+        break;
+      }
+    }
+
+    if (!user) {
+      console.log('❌ AUCUN UTILISATEUR TROUVÉ avec formats:', searchNumbers);
+      
+      // Debug: afficher tous les users
+      const allUsers = await User.findAll({
+        attributes: ['phoneNumber', 'firstName', 'lastName', 'isActive'],
+        limit: 10
+      });
+      console.log('📋 TOUS LES UTILISATEURS:', allUsers.map(u => ({
+        phone: u.phoneNumber,
+        name: `${u.firstName} ${u.lastName}`,
+        active: u.isActive
+      })));
+      
+      throw new Error('Aucun compte trouvé avec ce numéro');
+    }
+
+    console.log('🎯 CONNEXION RÉUSSIE:', {
+      reçu: phoneNumber,
+      trouvé: user.phoneNumber,
+      nom: `${user.firstName} ${user.lastName}`
     });
-    console.log('📋 TOUS LES UTILISATEURS:', allUsers.map(u => ({
-      phone: u.phoneNumber,
-      name: `${u.firstName} ${u.lastName}`,
-      active: u.isActive
-    })));
-    
-    throw new Error('Aucun compte trouvé avec ce numéro');
-  }
 
-  console.log('🎯 CONNEXION RÉUSSIE:', {
-    reçu: phoneNumber,
-    trouvé: user.phoneNumber,
-    nom: `${user.firstName} ${user.lastName}`
+    // Générer l'OTP avec hash
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = await bcrypt.hash(otpCode, 10);
+
+    await PendingOTP.create({
+      userId: user.id,
+      phoneNumber: user.phoneNumber,
+      otpCode: otpCode,
+      otpHash: otpHash,
+      purpose: 'LOGIN',
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      used: false
+    });
+
+    // Envoyer SMS OTP
+    try {
+      await smsService.sendOTP(user.phoneNumber, otpCode, 'connexion');
+      console.log(`✅ SMS OTP envoyé à ${user.phoneNumber}`);
+    } catch (error) {
+      console.error("❌ Erreur envoi SMS OTP:", error);
+    }
+
+    return {
+      userId: user.id,
+      message: 'Code OTP de connexion envoyé',
+      otpCode,
+      debugInfo: {
+        phoneNumber: user.phoneNumber,
+        role: user.role,
+        timestamp: new Date().toISOString()
+      }
+    };
+  },
+
+  // Vérification OTP
+  // async verifyOTP(userId, otpCode) {
+  //   const pendingOTP = await PendingOTP.findOne({
+  //     where: {
+  //       userId,
+  //       otpCode: otpCode,  // ← Changé de 'code' à 'otpCode'
+  //       used: false,
+  //       expiresAt: { [db.Sequelize.Op.gt]: new Date() }
+  //     },
+  //     include: [{ model: User, as: 'user', include: [{ model: Zone, as: 'zone' }] }]
+  //   });
+
+  //   if (!pendingOTP) throw new Error('Code OTP invalide ou expiré');
+
+  //   await pendingOTP.update({ used: true });
+
+  //   const token = jwt.sign(
+  //     {
+  //       id: pendingOTP.user.id,
+  //       phoneNumber: pendingOTP.user.phoneNumber,
+  //       role: pendingOTP.user.role
+  //     },
+  //     process.env.JWT_SECRET || 'in_tax_secret',
+  //     { expiresIn: '7d' }
+  //   );
+
+  //   await pendingOTP.user.update({ lastLogin: new Date() });
+
+  //   return {
+  //     token,
+  //     user: {
+  //       id: pendingOTP.user.id,
+  //       phoneNumber: pendingOTP.user.phoneNumber,
+  //       firstName: pendingOTP.user.firstName,
+  //       lastName: pendingOTP.user.lastName,
+  //       role: pendingOTP.user.role,
+  //       activityType: pendingOTP.user.activityType,
+  //       zone: pendingOTP.user.zone.name,
+  //       nifNumber: pendingOTP.user.nifNumber,
+  //       nifStatus: pendingOTP.user.nifStatus
+  //     }
+  //   };
+  // },
+
+  // Vérification OTP - Version corrigée
+async verifyOTP(userId, otpCode) {
+  const pendingOTP = await PendingOTP.findOne({
+    where: {
+      userId,
+      otpCode: otpCode,
+      isUsed: false,  // ← CORRIGÉ : 'isUsed' au lieu de 'used'
+      expiresAt: { [db.Sequelize.Op.gt]: new Date() }
+    },
+    include: [{ model: User, as: 'user', include: [{ model: Zone, as: 'zone' }] }]
   });
 
-  // Générer l'OTP
-  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+  if (!pendingOTP) throw new Error('Code OTP invalide ou expiré');
 
-  await PendingOTP.create({
-    userId: user.id,
-    phoneNumber: user.phoneNumber,
-    code: otpCode,
-    purpose: 'LOGIN',
-    expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-    used: false
-  });
+  await pendingOTP.update({ isUsed: true });  // ← CORRIGÉ : 'isUsed' au lieu de 'used'
 
-  // Envoyer SMS OTP
-  try {
-    await smsService.sendOTP(user.phoneNumber, otpCode, 'connexion');
-    console.log(`✅ SMS OTP envoyé à ${user.phoneNumber}`);
-  } catch (error) {
-    console.error("❌ Erreur envoi SMS OTP:", error);
-  }
+  const token = jwt.sign(
+    {
+      id: pendingOTP.user.id,
+      phoneNumber: pendingOTP.user.phoneNumber,
+      role: pendingOTP.user.role
+    },
+    process.env.JWT_SECRET || 'in_tax_secret',
+    { expiresIn: '7d' }
+  );
+
+  await pendingOTP.user.update({ lastLogin: new Date() });
 
   return {
-    userId: user.id,
-    message: 'Code OTP de connexion envoyé',
-    otpCode,
-    debugInfo: {
-      phoneNumber: user.phoneNumber,
-      role: user.role,
-      timestamp: new Date().toISOString()
+    token,
+    user: {
+      id: pendingOTP.user.id,
+      phoneNumber: pendingOTP.user.phoneNumber,
+      firstName: pendingOTP.user.firstName,
+      lastName: pendingOTP.user.lastName,
+      role: pendingOTP.user.role,
+      activityType: pendingOTP.user.activityType,
+      zone: pendingOTP.user.zone.name,
+      nifNumber: pendingOTP.user.nifNumber,
+      nifStatus: pendingOTP.user.nifStatus
     }
   };
 },
-
-  // Vérification OTP
-  async verifyOTP(userId, otpCode) {
+// services/authService.js - AJOUTER après verifyOTP
+async verifyPhoneNumber(phoneNumber, otpCode) {
+  try {
+    // Rechercher l'OTP
     const pendingOTP = await PendingOTP.findOne({
       where: {
-        userId,
-        code: otpCode,
-        used: false,
+        phoneNumber,
+        otpCode,
+        isUsed: false,
         expiresAt: { [db.Sequelize.Op.gt]: new Date() }
-      },
-      include: [{ model: User, as: 'user', include: [{ model: Zone, as: 'zone' }] }]
+      }
     });
 
-    if (!pendingOTP) throw new Error('Code OTP invalide ou expiré');
+    if (!pendingOTP) {
+      throw new Error('Code OTP invalide ou expiré');
+    }
 
-    await pendingOTP.update({ used: true });
+    // Marquer comme utilisé
+    await pendingOTP.update({ isUsed: true });
 
+    // Vérifier si l'utilisateur existe
+    let user = await User.findOne({ where: { phoneNumber } });
+    
+    if (!user) {
+      // Créer l'utilisateur si c'est une inscription
+      user = await User.create({
+        phoneNumber,
+        role: 'VENDEUR',
+        isActive: true,
+        nifStatus: 'PENDING'
+      });
+    }
+
+    // Générer le token
     const token = jwt.sign(
       {
-        id: pendingOTP.user.id,
-        phoneNumber: pendingOTP.user.phoneNumber,
-        role: pendingOTP.user.role
+        id: user.id,
+        phoneNumber: user.phoneNumber,
+        role: user.role
       },
       process.env.JWT_SECRET || 'in_tax_secret',
       { expiresIn: '7d' }
     );
 
-    await pendingOTP.user.update({ lastLogin: new Date() });
+    // Générer refresh token
+    const refreshToken = jwt.sign(
+      { id: user.id },
+      process.env.JWT_REFRESH_SECRET || 'in_tax_refresh_secret',
+      { expiresIn: '30d' }
+    );
 
     return {
       token,
+      refreshToken,
       user: {
-        id: pendingOTP.user.id,
-        phoneNumber: pendingOTP.user.phoneNumber,
-        firstName: pendingOTP.user.firstName,
-        lastName: pendingOTP.user.lastName,
-        role: pendingOTP.user.role,
-        activityType: pendingOTP.user.activityType,
-        zone: pendingOTP.user.zone.name,
-        nifNumber: pendingOTP.user.nifNumber,
-        nifStatus: pendingOTP.user.nifStatus
+        id: user.id,
+        phoneNumber: user.phoneNumber,
+        role: user.role,
+        nifStatus: user.nifStatus,
+        isActive: user.isActive
       }
+    };
+
+  } catch (error) {
+    console.error('❌ Erreur vérification téléphone:', error);
+    throw error;
+  }
+},
+  // Renvoyer OTP
+  async resendOtp(userId) {
+    const user = await User.findByPk(userId);
+
+    if (!user) {
+      throw new Error("Utilisateur introuvable");
+    }
+
+    // Générer l'OTP avec hash
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = await bcrypt.hash(otpCode, 10);
+
+    await PendingOTP.create({
+      userId: user.id,
+      phoneNumber: user.phoneNumber,
+      otpCode: otpCode,
+      otpHash: otpHash,
+      purpose: "LOGIN",
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      used: false
+    });
+
+    // ENVIRONEMENT DEV : afficher OTP
+    const debugOtp = process.env.NODE_ENV === "development" ? otpCode : undefined;
+
+    try {
+      await smsService.sendOTP(user.phoneNumber, otpCode, "renvoi");
+    } catch (error) {
+      console.error("Erreur envoi SMS:", error);
+    }
+
+    return {
+      otpCode: debugOtp,
+      phone: user.phoneNumber
     };
   }
 };

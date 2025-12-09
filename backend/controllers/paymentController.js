@@ -1,172 +1,286 @@
+'use strict';
 const MobileMoneyConnector = require('../services/MobileMoneyConnector');
-const smsService = require('../services/SMSService');
-const db = require('../models');
-const { Declaration, Payment } = db;
+const { Payment, Declaration, TransactionLog, sequelize } = require('../models');
+
+// ✅ Fonctions helpers pour éviter les problèmes de contexte
+const getProviderDisplayName = (provider) => {
+  const mapping = {
+    'ORANGE_MONEY': 'Orange Money',
+    'MVOLA': 'MVola',
+    'AIRTEL_MONEY': 'Airtel Money',
+    'ORANGE': 'Orange Money',
+    'AIRTEL': 'Airtel Money'
+  };
+  return mapping[provider] || provider;
+};
+
+const mapProviderToEnum = (provider) => {
+  const mapping = { 
+    orange: 'ORANGE_MONEY', 
+    mvola: 'MVOLA', 
+    airtel: 'AIRTEL_MONEY',
+    'orange-money': 'ORANGE_MONEY',
+    'airtel-money': 'AIRTEL_MONEY',
+    'ORANGE_MONEY': 'ORANGE_MONEY',
+    'MVOLA': 'MVOLA',
+    'AIRTEL_MONEY': 'AIRTEL_MONEY'
+  };
+  return mapping[provider.toLowerCase()] || 'ORANGE_MONEY';
+};
 
 class PaymentController {
   async initiatePayment(req, res) {
+    const transaction = await sequelize.transaction();
     try {
-      const { declarationId, provider, phoneNumber } = req.body;
+      const { declarationId, provider, paymentAmount, mode = 'SIMULATION' } = req.body;
       const userId = req.user.id;
+      const phone = req.user.phoneNumber;
+      const nifNumber = req.user.nifNumber;
 
-      const missingFields = ['declarationId', 'provider', 'phoneNumber']
-        .filter(field => !req.body[field]);
+      console.log(`🔍 PaymentController - Initiation: declarationId=${declarationId}, provider=${provider}, mode=${mode}, userId=${userId}`);
 
-      if (missingFields.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Champs manquants: ${missingFields.join(', ')}`
+      // Validation des données requises
+      if (!declarationId || !provider) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Données manquantes: declarationId et provider sont requis' 
         });
       }
 
-      const declaration = await Declaration.findOne({
-        where: { id: declarationId, userId }
+      // Récupération et validation de la déclaration
+      const declaration = await Declaration.findOne({ 
+        where: { id: declarationId, userId }, 
+        transaction 
       });
-
+      
       if (!declaration) {
-        return res.status(404).json({
-          success: false,
-          message: "Déclaration non trouvée"
+        await transaction.rollback();
+        return res.status(404).json({ 
+          success: false, 
+          message: 'Déclaration non trouvée' 
         });
       }
 
       if (declaration.status === 'PAID') {
-        return res.status(400).json({
-          success: false,
-          message: "Cette déclaration a déjà été payée"
+        await transaction.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Cette déclaration est déjà entièrement payée' 
         });
       }
 
-      const moneyConnector = new MobileMoneyConnector(provider);
-      const paymentData = {
-        amount: declaration.taxAmount,
-        phoneNumber: phoneNumber,
-        declarationId: declarationId,
-        userId: userId
-      };
-
-      const paymentResult = await moneyConnector.initiatePayment(paymentData);
-
-      if (!paymentResult.success) {
-        return res.status(400).json({
-          success: false,
-          message: paymentResult.message
+      // Détermination du montant à payer
+      const amountToPay = paymentAmount || declaration.remainingAmount;
+      
+      if (amountToPay <= 0) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Le montant à payer doit être supérieur à 0' 
         });
       }
 
+      if (amountToPay > declaration.remainingAmount) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          message: `Le montant à payer (${amountToPay}) dépasse le reste dû (${declaration.remainingAmount})` 
+        });
+      }
+
+      // Initialisation du paiement via MobileMoneyConnector
+      console.log(`🔍 Création MobileMoneyConnector: provider=${provider}, mode=${mode}`);
+      const moneyConnector = new MobileMoneyConnector(provider, mode);
+      
+      const result = await moneyConnector.initiatePayment({ 
+        amount: amountToPay, 
+        phoneNumber: phone, 
+        declarationId, 
+        userId 
+      });
+
+      console.log(`🔍 Résultat initiation:`, { 
+        success: result.success, 
+        transactionId: result.transactionId,
+        provider: result.provider 
+      });
+
+      if (!result.success) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          message: result.message 
+        });
+      }
+
+      // Détermination du type de paiement
+      const paymentType = amountToPay === declaration.remainingAmount ? 'FULL' : 'PARTIAL';
+      const remainingAfterPayment = declaration.remainingAmount - amountToPay;
+
+      // Création de l'enregistrement Payment
       const payment = await Payment.create({
-        declarationId,
-        userId,
-        nifNumber: req.user.nifNumber,
-        amount: declaration.taxAmount,
-        provider,
-        transactionId: paymentResult.transactionId,
-        status: paymentResult.status,
-        phoneNumber,
-        metadata: {
-          initiation: paymentResult,
-          sandbox: paymentResult.mode === 'SIMULATION'
+        declarationId, 
+        userId, 
+        nifNumber,
+        amount: amountToPay,
+        remainingAmount: remainingAfterPayment,
+        paymentType,
+        provider: result.provider || mapProviderToEnum(provider),
+        transactionId: result.transactionId,
+        status: result.status || 'PENDING',
+        phoneNumber: phone,
+        mode: result.mode || mode,
+        metadata: { 
+          initiation: result, 
+          mode: result.mode, 
+          provider: result.provider || provider,
+          providerDisplayName: result.providerDisplayName || getProviderDisplayName(provider)
         }
-      });
+      }, { transaction });
 
-      res.json({
-        success: true,
-        message: "Paiement initié avec succès",
+      await transaction.commit();
+      
+      console.log(`✅ Paiement initié avec succès: ${result.transactionId}`);
+      
+      res.status(200).json({ 
+        success: true, 
+        message: 'Paiement initié avec succès', 
         data: {
-          paymentId: payment.id,
-          transactionId: paymentResult.transactionId,
-          status: paymentResult.status,
-          amount: declaration.taxAmount,
-          provider: provider
+          payment,
+          transactionId: result.transactionId,
+          nextStep: 'Confirmez le paiement sur votre téléphone',
+          simulationInfo: result.simulation || null,
+          provider: result.provider,
+          providerDisplayName: result.providerDisplayName,
+          mode: result.mode || mode
         }
       });
 
-    } catch (error) {
-      console.error('Erreur initiation paiement:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Erreur lors de l\'initiation du paiement'
+    } catch (err) {
+      await transaction.rollback();
+      console.error('❌ PaymentController initiatePayment error:', err);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Erreur lors de l\'initiation du paiement',
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined
       });
     }
   }
 
   async confirmPayment(req, res) {
+    const transaction = await sequelize.transaction();
     try {
-      const { transactionId, provider } = req.body;
+      const { transactionId, provider, mode = 'SIMULATION' } = req.body;
       const userId = req.user.id;
 
+      console.log(`🔍 PaymentController - Confirmation: transactionId=${transactionId}, provider=${provider}, mode=${mode}`);
+
       if (!transactionId) {
-        return res.status(400).json({
-          success: false,
-          message: "Transaction ID est requis"
+        await transaction.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Transaction ID requis' 
         });
       }
 
-      const payment = await Payment.findOne({
-        where: { transactionId, userId },
-        include: [{ model: Declaration, as: 'declaration' }]
+      // Récupération du paiement
+      const payment = await Payment.findOne({ 
+        where: { transactionId, userId }, 
+        include: [{ model: Declaration, as: 'declaration' }], 
+        transaction 
       });
-
+      
       if (!payment) {
-        return res.status(404).json({
-          success: false,
-          message: 'Paiement non trouvé'
+        await transaction.rollback();
+        return res.status(404).json({ 
+          success: false, 
+          message: 'Paiement non trouvé' 
         });
       }
 
-      const moneyConnector = new MobileMoneyConnector(provider || payment.provider);
-      const confirmationResult = await moneyConnector.confirmPayment(transactionId);
-
-      if (!confirmationResult.success) {
-        return res.status(400).json({
-          success: false,
-          message: confirmationResult.message
+      if (payment.status === 'COMPLETED') {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Ce paiement est déjà confirmé' 
         });
       }
 
-      payment.status = confirmationResult.status;
-      payment.metadata = {
-        ...payment.metadata,
-        confirmation: confirmationResult,
-        confirmedAt: new Date().toISOString()
+      // Confirmation du paiement - utiliser le mode du paiement original si disponible
+      const confirmMode = payment.mode || mode;
+      const confirmProvider = provider || payment.provider;
+      
+      console.log(`🔍 Confirmation avec: mode=${confirmMode}, provider=${confirmProvider}`);
+      
+      const moneyConnector = new MobileMoneyConnector(confirmProvider, confirmMode);
+      const confirmResult = await moneyConnector.confirmPayment(transactionId);
+      
+      console.log(`🔍 Résultat confirmation:`, { 
+        success: confirmResult.success, 
+        status: confirmResult.status,
+        provider: confirmResult.provider 
+      });
+
+      if (!confirmResult.success) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          message: confirmResult.message 
+        });
+      }
+
+      // Mise à jour du paiement
+      payment.status = confirmResult.status || 'COMPLETED';
+      payment.metadata = { 
+        ...payment.metadata, 
+        confirmation: confirmResult, 
+        confirmedAt: new Date().toISOString(),
+        providerDisplayName: confirmResult.providerDisplayName || payment.metadata?.providerDisplayName
       };
-      await payment.save();
+      await payment.save({ transaction });
 
-      if (confirmationResult.status === 'COMPLETED') {
-        await Declaration.update(
-          { status: 'PAID' },
-          { where: { id: payment.declarationId } }
-        );
-
-        try {
-          await smsService.sendPaymentConfirmation(
-            payment.phoneNumber,
-            confirmationResult.amount || payment.amount,
-            payment.declaration.period,
-            payment.transactionId
-          );
-          console.log('✅ SMS confirmation paiement envoyé');
-        } catch (smsError) {
-          console.error('❌ Erreur envoi SMS paiement:', smsError);
+      // Mise à jour de la déclaration
+      const declaration = payment.declaration;
+      if (declaration) {
+        declaration.paidAmount = (parseFloat(declaration.paidAmount) || 0) + parseFloat(payment.amount);
+        declaration.remainingAmount = Math.max(0, declaration.taxAmount - declaration.paidAmount);
+        
+        if (declaration.remainingAmount === 0) {
+          declaration.status = 'PAID';
+        } else if (declaration.paidAmount > 0) {
+          declaration.status = 'PARTIALLY_PAID';
         }
+        
+        await declaration.save({ transaction });
       }
 
-      res.json({
-        success: true,
-        message: 'Paiement confirmé avec succès',
+      await transaction.commit();
+      
+      console.log(`✅ Paiement confirmé avec succès: ${transactionId}`);
+      
+      res.status(200).json({ 
+        success: true, 
+        message: 'Paiement confirmé avec succès', 
         data: {
-          paymentId: payment.id,
-          transactionId: transactionId,
-          status: confirmationResult.status,
-          amount: confirmationResult.amount || payment.amount
+          payment,
+          confirmation: confirmResult,
+          declaration: declaration ? {
+            id: declaration.id,
+            status: declaration.status,
+            paidAmount: declaration.paidAmount,
+            remainingAmount: declaration.remainingAmount
+          } : null
         }
       });
 
-    } catch (error) {
-      console.error('Erreur confirmation paiement:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Erreur lors de la confirmation du paiement'
+    } catch (err) {
+      await transaction.rollback();
+      console.error('❌ PaymentController confirmPayment error:', err);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Erreur lors de la confirmation du paiement',
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined
       });
     }
   }
@@ -174,34 +288,272 @@ class PaymentController {
   async getPaymentHistory(req, res) {
     try {
       const userId = req.user.id;
-      const { page = 1, limit = 10 } = req.query;
+      const { page = 1, limit = 10, status, provider, mode } = req.query;
+
+      const where = { userId };
+      if (status) where.status = status;
+      if (provider) where.provider = mapProviderToEnum(provider);
+      if (mode) where.mode = mode.toUpperCase();
 
       const payments = await Payment.findAndCountAll({
-        where: { userId },
-        include: [{
-          model: Declaration,
-          as: 'declaration',
-          attributes: ['period', 'amount', 'activityType']
+        where,
+        include: [{ 
+          model: Declaration, 
+          as: 'declaration', 
+          attributes: ['id', 'period', 'activityType', 'amount', 'taxAmount', 'status'] 
         }],
-        order: [['createdAt', 'DESC']],
-        limit: parseInt(limit),
-        offset: (parseInt(page) - 1) * parseInt(limit)
+        limit: Math.min(parseInt(limit), 50),
+        offset: (parseInt(page) - 1) * parseInt(limit),
+        order: [['createdAt', 'DESC']]
       });
 
-      res.json({
-        success: true,
+      // Formater la réponse avec des noms d'affichage
+      const formattedPayments = payments.rows.map(payment => {
+        const paymentData = payment.toJSON();
+        
+        // Ajouter le nom d'affichage du provider
+        paymentData.providerDisplayName = getProviderDisplayName(payment.provider);
+        
+        // Formater la date pour l'affichage
+        if (paymentData.createdAt) {
+          paymentData.formattedDate = new Date(paymentData.createdAt).toLocaleDateString('fr-MG', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+        }
+        
+        return paymentData;
+      });
+
+      res.status(200).json({ 
+        success: true, 
         data: {
-          payments: payments.rows,
+          payments: formattedPayments,
           total: payments.count,
           page: parseInt(page),
-          totalPages: Math.ceil(payments.count / limit)
+          totalPages: Math.ceil(payments.count / limit),
+          limit: parseInt(limit)
         }
       });
-    } catch (error) {
-      console.error('Erreur historique paiements:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Erreur lors de la récupération de l\'historique'
+    } catch (err) {
+      console.error('❌ PaymentController getPaymentHistory error:', err);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Erreur lors de la récupération de l\'historique des paiements',
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined
+      });
+    }
+  }
+
+  // async getPaymentDetails(req, res) {
+  //   try {
+  //     const { paymentId } = req.params;
+  //     const userId = req.user.id;
+
+  //     const payment = await Payment.findOne({
+  //       where: { id: paymentId, userId },
+  //       include: [
+  //         { 
+  //           model: Declaration, 
+  //           as: 'declaration', 
+  //           attributes: ['id', 'period', 'amount', 'taxAmount', 'status'] 
+  //         },
+  //         { 
+  //           model: TransactionLog, 
+  //           as: 'transactionLog', 
+  //           where: { transactionId: sequelize.col('Payment.transactionId') }, 
+  //           required: false 
+  //         }
+  //       ]
+  //     });
+
+  //     if (!payment) {
+  //       return res.status(404).json({ 
+  //         success: false, 
+  //         message: 'Paiement non trouvé' 
+  //       });
+  //     }
+
+  //     // Ajouter le nom d'affichage du provider
+  //     const paymentData = payment.toJSON();
+  //     paymentData.providerDisplayName = getProviderDisplayName(payment.provider);
+      
+  //     // Formater la date
+  //     if (paymentData.createdAt) {
+  //       paymentData.formattedDate = new Date(paymentData.createdAt).toLocaleDateString('fr-MG', {
+  //         day: '2-digit',
+  //         month: '2-digit',
+  //         year: 'numeric',
+  //         hour: '2-digit',
+  //         minute: '2-digit'
+  //       });
+  //     }
+
+  //     res.status(200).json({ 
+  //       success: true, 
+  //       data: { payment: paymentData } 
+  //     });
+  //   } catch (err) {
+  //     console.error('❌ PaymentController getPaymentDetails error:', err);
+  //     res.status(500).json({ 
+  //       success: false, 
+  //       message: 'Erreur lors de la récupération des détails du paiement' 
+  //     });
+  //   }
+  // }
+
+  async getPaymentDetails(req, res) {
+  try {
+    const { paymentId } = req.params;
+    const userId = req.user.id;
+
+    console.log(`🔍 Recherche détails paiement (version simple): ${paymentId}`);
+
+    // 1. Récupérer seulement le paiement et sa déclaration
+    const payment = await Payment.findOne({
+      where: { id: paymentId, userId },
+      include: [
+        { 
+          model: Declaration, 
+          as: 'declaration',
+          attributes: ['id', 'period', 'taxAmount', 'status', 'activityType', 'description']
+        }
+      ]
+    });
+
+    if (!payment) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Paiement non trouvé' 
+      });
+    }
+
+    // 2. Récupérer l'utilisateur séparément
+    let userInfo = null;
+    try {
+      const user = await sequelize.models.User.findOne({
+        where: { id: userId },
+        attributes: ['firstName', 'lastName', 'phoneNumber', 'nifNumber']
+      });
+      
+      if (user) {
+        userInfo = {
+          name: `${user.firstName} ${user.lastName}`,
+          phone: user.phoneNumber,
+          nif: user.nifNumber
+        };
+      }
+    } catch (userError) {
+      console.warn('⚠️ Erreur récupération utilisateur:', userError.message);
+    }
+
+    // 3. Récupérer les logs séparément
+    let transactionLogs = [];
+    try {
+      transactionLogs = await TransactionLog.findAll({
+        where: { 
+          transactionId: payment.transactionId,
+          userId: userId
+        },
+        order: [['createdAt', 'DESC']],
+        limit: 10
+      });
+    } catch (logError) {
+      console.warn('⚠️ Erreur récupération logs:', logError.message);
+    }
+
+    // 4. Construire la réponse
+    const response = {
+      id: payment.id,
+      transactionId: payment.transactionId,
+      amount: payment.amount,
+      status: payment.status,
+      provider: payment.provider,
+      providerDisplayName: getProviderDisplayName(payment.provider),
+      phoneNumber: payment.phoneNumber,
+      createdAt: payment.createdAt,
+      paidAt: payment.paidAt,
+      formattedAmount: `${payment.amount?.toLocaleString('fr-FR') || '0'} Ar`,
+      
+      // Déclaration
+      declaration: payment.declaration ? {
+        id: payment.declaration.id,
+        period: payment.declaration.period,
+        taxAmount: payment.declaration.taxAmount,
+        activityType: payment.declaration.activityType,
+        status: payment.declaration.status
+      } : null,
+      
+      // Utilisateur
+      user: userInfo,
+      
+      // Logs
+      transactionLogs: transactionLogs.map(log => ({
+        id: log.id,
+        status: log.status,
+        time: new Date(log.createdAt).toLocaleTimeString('fr-MG', {
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        metadata: log.metadata || {}
+      })),
+      
+      // Métadonnées
+      metadata: payment.metadata || {}
+    };
+
+    // Formater les dates
+    if (response.createdAt) {
+      response.formattedDate = new Date(response.createdAt).toLocaleDateString('fr-MG', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    console.log(`✅ Détails paiement récupérés avec succès: ${paymentId}`);
+    
+    res.status(200).json({ 
+      success: true, 
+      data: { 
+        payment: response 
+      } 
+    });
+
+  } catch (err) {
+    console.error('❌ PaymentController getPaymentDetails error:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Erreur lors de la récupération des détails du paiement'
+    });
+  }
+}
+  
+  // Méthode pour simuler un paiement (pour les tests)
+
+  async simulatePayment(req, res) {
+    try {
+      const { declarationId, provider = 'orange', amount } = req.body;
+      const userId = req.user.id;
+      
+      console.log(`🔍 Simulation de paiement: declarationId=${declarationId}, provider=${provider}`);
+      
+      // Appeler initiatePayment en mode simulation
+      req.body.mode = 'SIMULATION';
+      req.body.provider = provider;
+      req.body.paymentAmount = amount;
+      
+      return this.initiatePayment(req, res);
+    } catch (err) {
+      console.error('❌ PaymentController simulatePayment error:', err);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Erreur lors de la simulation du paiement' 
       });
     }
   }

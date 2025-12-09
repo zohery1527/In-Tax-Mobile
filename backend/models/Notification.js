@@ -31,8 +31,11 @@ module.exports = (sequelize, DataTypes) => {
         'DEADLINE_REMINDER',
         'PAYMENT_PENDING', 
         'NIF_STATUS',
-        'PAYMENT_CONFIRMED',
-        'DECLARATION_SUBMITTED'
+        'PAYMENT_SUCCESS',
+        'DECLARATION_SUBMITTED',
+        'SYSTEM_ALERT',
+        'TAX_REMINDER',
+        'NEW_FEATURE'
       ),
       allowNull: false
     },
@@ -81,6 +84,9 @@ module.exports = (sequelize, DataTypes) => {
       },
       {
         fields: ['expiresAt']
+      },
+      {
+        fields: ['createdAt']
       }
     ]
   });

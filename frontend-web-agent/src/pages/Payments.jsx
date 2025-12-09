@@ -1,43 +1,103 @@
-import { useEffect, useState } from 'react';
-import Table from '../components/Table';
-import { confirmPaymentManual, getPayments } from '../services/paymentService';
+import { useEffect, useState } from 'react'
+import Swal from 'sweetalert2'
+import ExportButton from '../components/Common/ExportButton'
+import PaymentFilters from '../components/Payments/PaymentFilters'
+import PaymentStats from '../components/Payments/PaymentStats'
+import PaymentTable from '../components/Payments/PaymentTable'
+import { paymentsAPI } from '../services/api'
 
 const Payments = () => {
-  const [payments, setPayments] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [payments, setPayments] = useState([])
+  const [stats, setStats] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [pagination, setPagination] = useState({})
+  const [filters, setFilters] = useState({
+    page: 1,
+    limit: 20,
+    status: '',
+    provider: '',
+    startDate: '',
+    endDate: '',
+    zoneId: ''
+  })
 
-  const fetchPayments = async () => {
-    setLoading(true);
-    const res = await getPayments();
-    if(res.success) setPayments(res.data.payments);
-    setLoading(false);
-  };
+  useEffect(() => {
+    loadPayments()
+  }, [filters])
 
-  const handleConfirm = async (id) => {
-    const res = await confirmPaymentManual(id);
-    if(res.success) fetchPayments();
-  };
+  const loadPayments = async () => {
+    try {
+      setLoading(true)
+      const response = await paymentsAPI.getPayments(filters)
+      setPayments(response.data.data.payments)
+      setStats(response.data.data.stats)
+      setPagination(response.data.data.pagination)
+    } catch (error) {
+      Swal.fire('Erreur', 'Impossible de charger les paiements', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
 
-  useEffect(()=>{ fetchPayments(); }, []);
+  const handleRefund = async (paymentId) => {
+    const { value: reason } = await Swal.fire({
+      title: 'Raison du remboursement',
+      input: 'textarea',
+      inputLabel: 'Pourquoi effectuez-vous ce remboursement ?',
+      inputPlaceholder: 'Entrez la raison...',
+      showCancelButton: true,
+      inputValidator: (value) => {
+        if (!value) {
+          return 'La raison du remboursement est obligatoire!'
+        }
+      }
+    })
 
-  const columns = [
-    { key: 'amount', label: 'Montant' },
-    { key: 'provider', label: 'Moyen de paiement' },
-    { key: 'status', label: 'Statut' },
-    { key: 'createdAt', label: 'Date', render: row => new Date(row.createdAt).toLocaleDateString('fr-FR') },
-    { key: 'user.firstName', label: 'Vendeur' },
-    { key: 'declaration.period', label: 'Période' },
-    { key: 'actions', label: 'Actions', render: row => row.status !== 'COMPLETED' && (
-      <button onClick={()=>handleConfirm(row.id)} className="bg-green-600 text-white px-2 py-1 rounded">Confirmer</button>
-    )}
-  ];
+    if (reason) {
+      try {
+        await paymentsAPI.refundPayment(paymentId, { reason })
+        Swal.fire('Succès', 'Paiement remboursé avec succès', 'success')
+        loadPayments()
+      } catch (error) {
+        Swal.fire('Erreur', 'Le remboursement a échoué', 'error')
+      }
+    }
+  }
+
+  const handlePageChange = (newPage) => {
+    setFilters(prev => ({ ...prev, page: newPage }))
+  }
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Paiements</h1>
-      {loading ? <div>Chargement...</div> : <Table data={payments} columns={columns}/>}
-    </div>
-  );
-};
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Gestion des Paiements</h1>
+          <p className="text-gray-600">Suivi et gestion des transactions financières</p>
+        </div>
+        <ExportButton
+          dataType="payments"
+          filters={filters}
+          label="Exporter les paiements"
+        />
+      </div>
 
-export default Payments;
+      {/* Stats */}
+      <PaymentStats stats={stats} />
+
+      {/* Filters */}
+      <PaymentFilters filters={filters} setFilters={setFilters} />
+
+      {/* Payments Table */}
+      <PaymentTable
+        payments={payments}
+        loading={loading}
+        pagination={pagination}
+        onRefund={handleRefund}
+        onPageChange={handlePageChange}
+      />
+    </div>
+  )
+}
+
+export default Payments

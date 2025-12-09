@@ -1,45 +1,88 @@
-import { useEffect, useState } from 'react';
-import Table from '../components/Table';
-import { getPendingDeclarations, validateDeclaration } from '../services/declarationService';
+import { useEffect, useState } from 'react'
+import Swal from 'sweetalert2'
+import ExportButton from '../components/Common/ExportButton'
+import DeclarationFilters from '../components/Declarations/DeclarationFilters'
+import DeclarationTable from '../components/Declarations/DeclarationTable'
+import { declarationsAPI } from '../services/api'
 
 const Declarations = () => {
-  const [declarations, setDeclarations] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [declarations, setDeclarations] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [pagination, setPagination] = useState({})
+  const [filters, setFilters] = useState({
+    page: 1,
+    limit: 20,
+    status: '',
+    period: '',
+    zoneId: '',
+    userId: ''
+  })
 
-  const fetchDeclarations = async () => {
-    setLoading(true);
-    const res = await getPendingDeclarations();
-    if(res.success) setDeclarations(res.data.declarations);
-    setLoading(false);
-  };
+  useEffect(() => {
+    loadDeclarations()
+  }, [filters])
 
-  const handleValidate = async (id) => {
-    const res = await validateDeclaration(id);
-    if(res.success) fetchDeclarations();
-  };
+  const loadDeclarations = async () => {
+    try {
+      setLoading(true)
+      const response = await declarationsAPI.getDeclarations(filters)
+      setDeclarations(response.data.data.declarations)
+      setPagination(response.data.data.pagination)
+    } catch (error) {
+      Swal.fire('Erreur', 'Impossible de charger les déclarations', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
 
-  useEffect(()=> { fetchDeclarations(); }, []);
+  const handleValidateDeclaration = async (declarationId, action, reason = '') => {
+    try {
+      await declarationsAPI.validateDeclaration(declarationId, { action, reason })
+      
+      Swal.fire({
+        icon: 'success',
+        title: `Déclaration ${action === 'APPROVE' ? 'approuvée' : 'rejetée'}`,
+        showConfirmButton: false,
+        timer: 1500
+      })
+      
+      loadDeclarations()
+    } catch (error) {
+      Swal.fire('Erreur', 'Action échouée', 'error')
+    }
+  }
 
-  const columns = [
-    { key: 'period', label: 'Période' },
-    { key: 'amount', label: 'Montant' },
-    { key: 'taxAmount', label: 'Taxe' },
-    { key: 'status', label: 'Statut' },
-    { key: 'activityType', label: 'Activité' },
-    { key: 'user.firstName', label: 'Vendeur' },
-    { key: 'user.zone.name', label: 'Région' },
-    { key: 'createdAt', label: 'Date', render: row => new Date(row.createdAt).toLocaleDateString('fr-FR') },
-    { key: 'actions', label: 'Actions', render: row => (
-      <button onClick={()=>handleValidate(row.id)} className="bg-green-600 text-white px-2 py-1 rounded">Valider</button>
-    )}
-  ];
+  const handlePageChange = (newPage) => {
+    setFilters(prev => ({ ...prev, page: newPage }))
+  }
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Déclarations en attente</h1>
-      {loading ? <div>Chargement...</div> : <Table data={declarations} columns={columns}/>}
-    </div>
-  );
-};
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Gestion des Déclarations</h1>
+          <p className="text-gray-600">Validation et suivi des déclarations fiscales</p>
+        </div>
+        <ExportButton
+          dataType="declarations"
+          filters={filters}
+          label="Exporter les déclarations"
+        />
+      </div>
 
-export default Declarations;
+      {/* Filters */}
+      <DeclarationFilters filters={filters} setFilters={setFilters} />
+
+      {/* Declarations Table */}
+      <DeclarationTable
+        declarations={declarations}
+        loading={loading}
+        pagination={pagination}
+        onValidate={handleValidateDeclaration}
+        onPageChange={handlePageChange}
+      />
+    </div>
+  )
+}
+
+export default Declarations

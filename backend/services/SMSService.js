@@ -26,7 +26,11 @@ class SMSService {
       DECLARATION_VALIDATED: {
         fr: (period, tax) => `Votre déclaration ${period} est validée. Taxe: ${tax} MGA. Paiement mobile money disponible. In-Tax`,
         mg: (period, tax) => `Voamarina ny famaranana ${period}. Hetezambola: ${tax} Ar. Afaka mandoa @ mobile money ianao. In-Tax`
-      }
+      },
+      DECLARATION_DELETED: {
+        fr: (period) => `Déclaration ${period} supprimée avec succès. In-Tax`,
+        mg: (period) => `Famaranana ${period} voafafa soamantsara. In-Tax`
+      },
     };
   }
 
@@ -160,6 +164,36 @@ class SMSService {
     console.log(`🚀 [PRODUCTION] SMS envoyé à ${phoneNumber}: ${message}`);
     return { success: true, production: true };
   }
+
+async sendDeclarationDeleted(phoneNumber, period, language = 'fr') {
+  try {
+    const message = this.messageTemplates.DECLARATION_DELETED[language](period);
+
+    if (this.isSandbox) {
+      console.log('\n' + '='.repeat(50));
+      console.log('🗑️ **SMS DECLARATION SUPPRIMEE**');
+      console.log('='.repeat(50));
+      console.log(`Destinataire: ${phoneNumber}`);
+      console.log(`Période: ${period}`);
+      console.log(`Message: ${message}`);
+      console.log('Statut: SMS Simulé avec succès');
+      console.log('='.repeat(50));
+
+      return {
+        success: true,
+        messageId: 'mock-deleted-' + Date.now(),
+        sandbox: true
+      };
+    }
+
+    return await this.sendRealSMS(phoneNumber, message);
+
+  } catch (error) {
+    console.error('❌ Erreur SMS déclaration supprimée:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 }
 
 module.exports = new SMSService();

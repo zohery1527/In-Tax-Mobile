@@ -1,96 +1,55 @@
-import { useEffect, useState } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
-import authService from './services/authService';
+import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom'
+import Layout from './components/Layout/Layout'
+import { AuthProvider, useAuth } from './hooks/useAuth'
+import AuditLogs from './pages/AuditLogs'
+import Dashboard from './pages/Dashboard'
+import Declarations from './pages/Declarations'
+import Login from './pages/Login'
+import NIFValidation from './pages/NIFValidation'
+import Payments from './pages/Payments'
+import SystemConfig from './pages/SystemConfig'
+import Users from './pages/Users'
 
-import Header from './components/Header';
-import ProtectedRoute from './components/ProtectedRoute';
-import Sidebar from './components/Sidebar';
-
-import Dashboard from './pages/Dashboard';
-import Declarations from './pages/Declarations';
-import ExportData from './pages/ExportData';
-import Login from './pages/Login';
-import NIFValidation from './pages/NIFValidation';
-import OTPVerification from './pages/OTPVerification';
-import Payments from './pages/Payments';
-import Users from './pages/Users';
-
-const App = () => {
-  const [user, setUser] = useState(null);
-
-  useEffect(() => {
-    const currentUser = authService.getCurrentUser();
-    setUser(currentUser);
-  }, []);
-
-  return (
-    <div className="flex h-screen bg-gray-100">
-      {user && <Sidebar user={user} />}
-      <div className="flex-1 flex flex-col">
-        {user && <Header user={user} setUser={setUser} />}
-        <main className="p-6 overflow-auto flex-1">
-          <Routes>
-            {/* Routes publiques */}
-            <Route path="/login" element={<Login setUser={setUser} />} />
-            <Route path="/otp-verification" element={<OTPVerification setUser={setUser} />} />
-
-            {/* Routes protégées */}
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute user={user}>
-                  <Dashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/users"
-              element={
-                <ProtectedRoute user={user}>
-                  <Users />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/declarations"
-              element={
-                <ProtectedRoute user={user}>
-                  <Declarations />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/payments"
-              element={
-                <ProtectedRoute user={user}>
-                  <Payments />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/nif-validation"
-              element={
-                <ProtectedRoute user={user}>
-                  <NIFValidation />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/export"
-              element={
-                <ProtectedRoute user={user}>
-                  <ExportData />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Redirection par défaut */}
-            <Route path="*" element={<Navigate to={user ? "/" : "/login"} replace />} />
-          </Routes>
-        </main>
+const ProtectedRoute = ({ children }) => {
+  const { isAuthenticated, loading } = useAuth()
+  
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
-    </div>
-  );
-};
+    )
+  }
+  
+  return isAuthenticated ? children : <Navigate to="/login" />
+}
 
-export default App;
+function App() {
+  return (
+    <AuthProvider>
+      <Router>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          
+          <Route path="/admin" element={
+            <ProtectedRoute>
+              <Layout />
+            </ProtectedRoute>
+          }>
+            <Route index element={<Dashboard />} />
+            <Route path="users" element={<Users />} />
+            <Route path="declarations" element={<Declarations />} />
+            <Route path="payments" element={<Payments />} />
+            <Route path="nif" element={<NIFValidation />} />
+            <Route path="audit" element={<AuditLogs />} />
+            <Route path="system" element={<SystemConfig />} />
+          </Route>
+          
+          <Route path="/" element={<Navigate to="/admin" />} />
+        </Routes>
+      </Router>
+    </AuthProvider>
+  )
+}
+
+export default App
