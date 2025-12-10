@@ -1,7 +1,7 @@
 // services/api.ts - VERSION FINALE POUR VENDEURS INFORMELS
 import * as SecureStore from 'expo-secure-store';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.43.103:5000/api';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://in-tax-mobile.onrender.com';
 const REQUEST_TIMEOUT = 30000;
 
 // ======================
