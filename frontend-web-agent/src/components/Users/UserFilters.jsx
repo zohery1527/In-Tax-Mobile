@@ -93,10 +93,11 @@ const UserFilters = ({ filters, setFilters }) => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">Tous</option>
-              <option value="commercant">Commerçant</option>
-              <option value="service">Service</option>
-              <option value="artisan">Artisan</option>
-              <option value="autre">Autre</option>
+              <option value="COMMERCE">Commerçant</option>
+              <option value="SERVICE">Service</option>
+              <option value="ARTISANAT">Artisan</option>
+              <option value="AUTRE">Autre</option>
+              <option value="ALIMENTATION">Alimentation</option>
             </select>
           </div>
 

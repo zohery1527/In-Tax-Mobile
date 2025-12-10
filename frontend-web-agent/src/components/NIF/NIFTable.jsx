@@ -4,7 +4,7 @@ import Swal from 'sweetalert2'
 const NIFTable = ({ users, loading, pagination, onValidate, onPageChange }) => {
   const [validatingId, setValidatingId] = useState(null)
 
-  // Icônes SVG simples
+  // Icônes SVG (gardez les mêmes)
   const Icons = {
     User: ({ className = "h-4 w-4" }) => (
       <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -56,53 +56,86 @@ const NIFTable = ({ users, loading, pagination, onValidate, onPageChange }) => {
       <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
+    ),
+    // Ajouter une icône NIF
+    NIF: ({ className = "h-4 w-4" }) => (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
     )
   }
 
+  // MODIFIÉ : Approuver sans demander de NIF
   const handleApprove = async (user) => {
     setValidatingId(user.id)
 
-    const { value: nifNumber } = await Swal.fire({
-      title: 'Numéro NIF',
-      input: 'text',
-      inputLabel: 'Entrez le numéro NIF à attribuer',
-      inputPlaceholder: 'Ex: 1234567890',
+    // Vérifier si l'utilisateur a déjà un NIF
+    if (!user.nifNumber) {
+      await Swal.fire({
+        icon: 'error',
+        title: 'Pas de NIF',
+        text: 'Cet utilisateur n\'a pas encore de numéro NIF attribué.',
+      })
+      setValidatingId(null)
+      return
+    }
+
+    // Confirmation simple
+    const result = await Swal.fire({
+      title: 'Confirmer l\'approbation',
+      html: `
+        <div class="text-left">
+          <p>Voulez-vous approuver le NIF de cet utilisateur ?</p>
+          <div class="mt-4 p-3 bg-gray-50 rounded">
+            <p class="text-sm text-gray-600">Utilisateur: <span class="font-semibold">${user.firstName} ${user.lastName}</span></p>
+            <p class="text-sm text-gray-600">NIF: <span class="font-semibold text-green-600">${user.nifNumber}</span></p>
+            <p class="text-sm text-gray-600">Activité: ${user.activityType}</p>
+          </div>
+        </div>
+      `,
+      icon: 'question',
       showCancelButton: true,
-      inputValidator: (value) => {
-        if (!value) {
-          return 'Le numéro NIF est obligatoire!'
-        }
-        if (!/^\d+$/.test(value)) {
-          return 'Le NIF doit contenir uniquement des chiffres!'
-        }
-      }
+      confirmButtonColor: '#10b981',
+      confirmButtonText: 'Oui, approuver',
+      cancelButtonText: 'Annuler'
     })
 
-    if (nifNumber) {
-      await onValidate(user.id, 'APPROVE', nifNumber)
+    if (result.isConfirmed) {
+      await onValidate(user.id, 'APPROVE')
     }
 
     setValidatingId(null)
   }
 
+  // MODIFIÉ : Rejeter avec demande de raison
   const handleReject = async (user) => {
     setValidatingId(user.id)
 
     const { value: reason } = await Swal.fire({
       title: 'Raison du rejet',
+      html: `
+        <div class="text-left">
+          <p>Pourquoi rejetez-vous la demande NIF de <strong>${user.firstName} ${user.lastName}</strong> ?</p>
+          ${user.nifNumber ? `<p class="mt-2 text-sm text-gray-600">NIF: <span class="font-semibold">${user.nifNumber}</span></p>` : ''}
+        </div>
+      `,
       input: 'textarea',
-      inputLabel: 'Pourquoi rejetez-vous cette demande ?',
-      inputPlaceholder: 'Entrez la raison du rejet...',
+      inputLabel: 'Raison du rejet',
+      inputPlaceholder: 'Entrez la raison du rejet (minimum 10 caractères)...',
+      inputAttributes: {
+        minlength: 10
+      },
       showCancelButton: true,
       inputValidator: (value) => {
-        if (!value) {
-          return 'La raison du rejet est obligatoire!'
+        if (!value || value.trim().length < 10) {
+          return 'La raison du rejet est obligatoire (minimum 10 caractères)'
         }
+        return null
       }
     })
 
     if (reason) {
-      await onValidate(user.id, 'REJECT', '', reason)
+      await onValidate(user.id, 'REJECT', reason)
     }
 
     setValidatingId(null)
@@ -151,8 +184,8 @@ const NIFTable = ({ users, loading, pagination, onValidate, onPageChange }) => {
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 <div className="flex items-center">
-                  <Icons.Phone />
-                  <span className="ml-2">Contact</span>
+                  <Icons.NIF />
+                  <span className="ml-2">Numéro NIF</span>
                 </div>
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -193,18 +226,22 @@ const NIFTable = ({ users, loading, pagination, onValidate, onPageChange }) => {
                         {user.firstName} {user.lastName}
                       </div>
                       <div className="text-xs text-gray-500 flex items-center mt-1">
-                        <Icons.Document className="h-3 w-3 mr-1" />
-                        ID: {user.id?.substring(0, 8)}...
+                        <Icons.Phone className="h-3 w-3 mr-1" />
+                        {user.phoneNumber}
                       </div>
                     </div>
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
-                    <Icons.Phone className="h-4 w-4 mr-2 text-gray-400" />
+                    <Icons.NIF className="h-4 w-4 mr-2 text-gray-400" />
                     <div>
-                      <div className="text-sm text-gray-900">{user.phoneNumber}</div>
-                      <div className="text-sm text-gray-500">{user.email}</div>
+                      <div className="text-sm font-mono text-gray-900">
+                        {user.nifNumber || 'Non attribué'}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {user.nifNumber ? 'Créé automatiquement' : 'En attente'}
+                      </div>
                     </div>
                   </div>
                 </td>
@@ -223,7 +260,7 @@ const NIFTable = ({ users, loading, pagination, onValidate, onPageChange }) => {
                     <div>
                       <div className="text-sm text-gray-900">{user.activityType}</div>
                       <div className="text-sm text-gray-500 capitalize">
-                        {user.businessType?.toLowerCase()}
+                        {user.businessType?.toLowerCase() || 'Non spécifié'}
                       </div>
                     </div>
                   </div>
@@ -245,9 +282,9 @@ const NIFTable = ({ users, loading, pagination, onValidate, onPageChange }) => {
                   <div className="flex space-x-2">
                     <button
                       onClick={() => handleApprove(user)}
-                      disabled={validatingId === user.id}
-                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm rounded-md text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
-                      title="Approuver"
+                      disabled={validatingId === user.id || user.nifStatus !== 'PENDING'}
+                      className={`inline-flex items-center px-3 py-1.5 border border-transparent text-sm rounded-md text-white ${user.nifStatus !== 'PENDING' ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'} disabled:opacity-50`}
+                      title={user.nifStatus !== 'PENDING' ? 'Déjà traité' : 'Approuver'}
                     >
                       {validatingId === user.id ? (
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -260,9 +297,9 @@ const NIFTable = ({ users, loading, pagination, onValidate, onPageChange }) => {
                     </button>
                     <button
                       onClick={() => handleReject(user)}
-                      disabled={validatingId === user.id}
-                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm rounded-md text-white bg-red-600 hover:bg-red-700 disabled:opacity-50"
-                      title="Rejeter"
+                      disabled={validatingId === user.id || user.nifStatus !== 'PENDING'}
+                      className={`inline-flex items-center px-3 py-1.5 border border-transparent text-sm rounded-md text-white ${user.nifStatus !== 'PENDING' ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'} disabled:opacity-50`}
+                      title={user.nifStatus !== 'PENDING' ? 'Déjà traité' : 'Rejeter'}
                     >
                       <Icons.XMark />
                       <span className="ml-1">Rejeter</span>

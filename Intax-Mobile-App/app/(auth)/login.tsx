@@ -29,14 +29,28 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   useEffect(() => {
-    // Focus après un délai plus court
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      () => setKeyboardVisible(true)
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => setKeyboardVisible(false)
+    );
+
+    // Focus après un délai court
     const timer = setTimeout(() => {
       phoneInputRef.current?.focus();
     }, 300);
     
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
   }, []);
 
   const handleLogin = async () => {
@@ -72,7 +86,8 @@ export default function LoginScreen() {
         pathname: '/(auth)/verify-register',
         params: { 
           phoneNumber: cleanedPhone,
-          userId: response.userId
+          userId: response.userId,
+          debugOtp:response.otpCode
         }
       });
       
@@ -85,7 +100,6 @@ export default function LoginScreen() {
         errorMessage = 'Tsy afaka mampifandray amin\'ny servety. Jereo ny connexion Internet-nao.';
       } else if (err.message?.includes('non trouvé') || err.message?.includes('not found')) {
         errorMessage = 'Tsy misy kaonty misy an\'io laharana finday io. Soraty anarana aloha.';
-        // Option : Redirection automatique vers l'inscription
         setTimeout(() => {
           router.push({
             pathname: '/(auth)/register',
@@ -109,9 +123,7 @@ export default function LoginScreen() {
   };
 
   const handlePhoneChange = (text: string) => {
-    // Autoriser seulement les chiffres
     const cleaned = text.replace(/\D/g, '');
-    // Limiter à 10 caractères
     const limited = cleaned.slice(0, 10);
     
     setPhoneNumber(limited);
@@ -121,7 +133,6 @@ export default function LoginScreen() {
   const handleQuickFill = (number: string) => {
     setPhoneNumber(number);
     if (error) setError(null);
-    // Focus sur l'input après un court délai
     setTimeout(() => {
       phoneInputRef.current?.focus();
     }, 100);
@@ -141,18 +152,22 @@ export default function LoginScreen() {
 
   return (
     <AuthLayout>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.container}
+        style={styles.keyboardAvoidingView}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
+        <ScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            keyboardVisible && styles.scrollContentWithKeyboard
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           bounces={false}
+          keyboardDismissMode="on-drag"
         >
-          {/* En-tête avec logo moderne */}
+          {/* En-tête */}
           <View style={styles.header}>
             <View style={styles.logoContainer}>
               <LinearGradient
@@ -176,7 +191,7 @@ export default function LoginScreen() {
             </View>
           </View>
 
-          {/* Carte de connexion moderne */}
+          {/* Carte de connexion */}
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Hiditra</Text>
@@ -185,7 +200,7 @@ export default function LoginScreen() {
               </Text>
             </View>
 
-            {/* Champ téléphone avec design amélioré */}
+            {/* Champ téléphone */}
             <View style={styles.inputSection}>
               <Text style={styles.inputLabel}>
                 Laharan&apos;ny finday <Text style={styles.required}>*</Text>
@@ -214,7 +229,7 @@ export default function LoginScreen() {
                     editable={!loading}
                     returnKeyType="done"
                     onSubmitEditing={handleSubmit}
-                    maxLength={12} // 10 chiffres + 2 espaces
+                    maxLength={12}
                     selectionColor="#3498db"
                     blurOnSubmit={true}
                     autoCorrect={false}
@@ -316,21 +331,24 @@ export default function LoginScreen() {
             </View>
           </View>
 
-          {/* Information de sécurité */}
-          <View style={styles.securityInfo}>
-            <View style={styles.securityIcon}>
-              <Icons.ShieldCheck size={18} color="#27ae60" />
+          {/* Contenu du bas */}
+          <View style={styles.bottomContent}>
+            {/* Information de sécurité */}
+            <View style={styles.securityInfo}>
+              <View style={styles.securityIcon}>
+                <Icons.ShieldCheck size={18} color="#27ae60" />
+              </View>
+              <Text style={styles.securityText}>
+                Ny OTP dia alefa amin&apos;ny laharana finday nampidirinao. Azo antoka ny fiarovana ny kaontinao.
+              </Text>
             </View>
-            <Text style={styles.securityText}>
-              Ny OTP dia alefa amin&apos;ny laharana finday nampidirinao. Azo antoka ny fiarovana ny kaontinao.
-            </Text>
-          </View>
 
-          {/* Numéro support */}
-          <TouchableOpacity style={styles.supportContainer}>
-            <Icons.Headphones size={16} color="#7f8c8d" />
-            <Text style={styles.supportText}>Manana olana? Antsoy: 034 20 152 72</Text>
-          </TouchableOpacity>
+            {/* Numéro support */}
+            <TouchableOpacity style={styles.supportContainer}>
+              <Icons.Headphones size={16} color="#7f8c8d" />
+              <Text style={styles.supportText}>Manana olana? Antsoy: 034 20 152 72</Text>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </AuthLayout>
@@ -338,18 +356,22 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  keyboardAvoidingView: {
     flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
-    paddingVertical: 10,
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+  },
+  scrollContentWithKeyboard: {
+    paddingBottom: 100, // Espace supplémentaire quand le clavier est visible
   },
   header: {
     alignItems: 'center',
     marginBottom: 30,
-    paddingHorizontal: 20,
+    marginTop: 10,
   },
   logoContainer: {
     marginBottom: 20,
@@ -406,7 +428,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 24,
     padding: 24,
-    marginHorizontal: 20,
     shadowColor: '#000',
     shadowOpacity: 0.15,
     shadowOffset: { width: 0, height: 10 },
@@ -600,12 +621,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginRight: 6,
   },
+  bottomContent: {
+    marginTop: 'auto',
+  },
   securityInfo: {
     flexDirection: 'row',
     backgroundColor: 'rgba(39, 174, 96, 0.1)',
     borderRadius: 16,
     padding: 16,
-    marginHorizontal: 20,
     alignItems: 'flex-start',
     marginBottom: 16,
     borderWidth: 1,

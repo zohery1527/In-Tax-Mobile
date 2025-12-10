@@ -1,11 +1,10 @@
-// components/AuthLayout.tsx - VERSION AMÉLIORÉE
 import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
 import {
   SafeAreaView,
   StatusBar,
   StyleSheet,
-  View,
+  View
 } from 'react-native';
 
 interface AuthLayoutProps {
@@ -39,8 +38,5 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 20,
   },
 });

@@ -1,5 +1,6 @@
 // controllers/admin/adminNIFController.js
-const { User, NIFHistory, Notification, Zone, sequelize } = require('../../models');
+const { User, NIFHistory, Notification, Zone, Admin, sequelize } = require('../../models');
+const { Op } = require('sequelize');
 
 const adminNIFController = {
 
@@ -25,6 +26,7 @@ const adminNIFController = {
           as: 'zone',
           attributes: ['name', 'code', 'region']
         }],
+        attributes: ['id', 'firstName', 'lastName', 'phoneNumber', 'nifNumber', 'nifStatus', 'activityType', 'createdAt', 'zoneId'],
         order: [['createdAt', 'ASC']]
       });
 
@@ -53,7 +55,7 @@ const adminNIFController = {
   validateNIF: async (req, res) => {
     try {
       const { userId } = req.params;
-      const { action, nifNumber, rejectionReason } = req.body;
+      const { action, rejectionReason } = req.body; // Retirer nifNumber
 
       const user = await User.findByPk(userId, {
         include: [{ model: Zone, as: 'zone' }]
@@ -66,7 +68,23 @@ const adminNIFController = {
         });
       }
 
-      // Vérifier l'accès
+      // Vérifier que l'utilisateur a bien un NIF
+      if (!user.nifNumber) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cet utilisateur n\'a pas encore de numéro NIF'
+        });
+      }
+
+      // Vérifier que le statut est bien PENDING
+      if (user.nifStatus !== 'PENDING') {
+        return res.status(400).json({
+          success: false,
+          message: `Le NIF de cet utilisateur est déjà ${user.nifStatus.toLowerCase()}`
+        });
+      }
+
+      // Vérifier l'accès (ajoutez cette fonction)
       if (!(await hasAccessToUser(req.admin, user))) {
         return res.status(403).json({
           success: false,
@@ -75,7 +93,7 @@ const adminNIFController = {
       }
 
       if (action === 'APPROVE') {
-        await approveNIF(user, nifNumber, req.admin);
+        await approveNIF(user, req.admin);
       } else if (action === 'REJECT') {
         await rejectNIF(user, rejectionReason, req.admin);
       } else {
@@ -87,7 +105,7 @@ const adminNIFController = {
 
       res.json({
         success: true,
-        message: `NIF ${action === 'APPROVE' ? 'validé' : 'rejeté'} avec succès`,
+        message: `NIF ${action === 'APPROVE' ? 'approuvé' : 'rejeté'} avec succès`,
         data: { user }
       });
 
@@ -95,7 +113,8 @@ const adminNIFController = {
       console.error('Validate NIF error:', error);
       res.status(500).json({
         success: false,
-        message: 'Erreur lors de la validation du NIF'
+        message: 'Erreur lors de la validation du NIF',
+        error: error.message
       });
     }
   }
@@ -114,35 +133,42 @@ async function buildZoneFilter(admin, requestedZoneId) {
     return { zoneId: requestedZoneId };
   }
   
-  return { zoneId: { [sequelize.Op.in]: adminZoneIds } };
+  return { zoneId: { [Op.in]: adminZoneIds } };
 }
 
-async function approveNIF(user, nifNumber, admin) {
-  // Vérifier doublon NIF
-  const existingUser = await User.findOne({ 
-    where: { nifNumber, id: { [sequelize.Op.ne]: user.id } }
-  });
-
-  if (existingUser) {
-    throw new Error('Ce numéro NIF est déjà attribué à un autre utilisateur');
+// AJOUTEZ CETTE FONCTION (manquante)
+async function hasAccessToUser(admin, user) {
+  if (admin.scope === 'GLOBAL') {
+    return true;
   }
 
+  const adminZones = await admin.getZones();
+  const adminZoneIds = adminZones.map(z => z.id);
+  
+  return adminZoneIds.includes(user.zoneId);
+}
+
+async function approveNIF(user, admin) {
+  // Pas besoin de vérifier le doublon car le NIF est déjà unique dans la BD
+  
+  // Mettre à jour l'utilisateur
   await user.update({
-    nifNumber,
     nifStatus: 'VALIDATED',
-    nifAttributionDate: new Date()
+    nifAttributionDate: new Date(),
+    validatedBy: admin.id
   });
 
   // Historique
   await NIFHistory.create({
     userId: user.id,
-    nifNumber,
+    nifNumber: user.nifNumber, // Utiliser le nifNumber existant
     action: 'VALIDATED',
     reason: 'Approuvé par administrateur',
     performedBy: admin.id,
     metadata: {
       adminName: admin.fullName,
-      adminRole: admin.role
+      adminRole: admin.role,
+      attributionDate: new Date().toISOString()
     }
   });
 
@@ -151,19 +177,24 @@ async function approveNIF(user, nifNumber, admin) {
     userId: user.id,
     type: 'NIF_STATUS',
     title: 'NIF voamarina',
-    message: `Ny NIF anao ${nifNumber} dia voamarina soamantsara. Azonao atao ny manao famaranana.`,
-    actionUrl: '/profile'
+    message: `Ny NIF anao ${user.nifNumber} dia voamarina soamantsara. Azonao atao ny manao famaranana.`,
+    actionUrl: '/profile',
+    metadata: {
+      nifNumber: user.nifNumber,
+      status: 'VALIDATED'
+    }
   });
 }
 
 async function rejectNIF(user, rejectionReason, admin) {
-  if (!rejectionReason) {
-    throw new Error('La raison du rejet est requise');
+  if (!rejectionReason || rejectionReason.trim().length < 5) {
+    throw new Error('La raison du rejet est requise (minimum 5 caractères)');
   }
 
   await user.update({
     nifStatus: 'REJECTED',
-    nifAttributionDate: null
+    rejectionReason: rejectionReason.trim(),
+    validatedBy: admin.id
   });
 
   // Historique
@@ -175,7 +206,8 @@ async function rejectNIF(user, rejectionReason, admin) {
     performedBy: admin.id,
     metadata: {
       adminName: admin.fullName,
-      rejectionReason
+      adminRole: admin.role,
+      rejectionReason: rejectionReason
     }
   });
 
@@ -185,7 +217,12 @@ async function rejectNIF(user, rejectionReason, admin) {
     type: 'NIF_STATUS',
     title: 'NIF tsy voamarina',
     message: `Ny fangatahana NIF dia tsy voamarina: ${rejectionReason}. Miantsoa ny fanampiana.`,
-    actionUrl: '/profile'
+    actionUrl: '/profile',
+    metadata: {
+      nifNumber: user.nifNumber,
+      status: 'REJECTED',
+      reason: rejectionReason
+    }
   });
 }
 
